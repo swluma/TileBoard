@@ -462,7 +462,6 @@ const characterLibrary = {
     name: "Painter 1",
     displayName: "Scrabbit",
     icon: "🎨",
-    iconImage: "scrabbit.png",
     type: "Painter",
     roleText: "Excels at moving across the field and painting tiles.",
     flavorText: "A rabbit-like machine once assigned to maintain the arena. Its long ears work as both antennas and stabilizers, and its back carries tools for maintenance work. It is arrogant about its performance, but that confidence comes from knowing the site inside and out.",
@@ -475,7 +474,6 @@ const characterLibrary = {
     name: "Painter 2",
     displayName: "Mira",
     icon: "🫥",
-    iconImage: "mira.png",
     type: "Painter",
     roleText: "Excels at moving across the field and painting tiles.",
     flavorText: "One of the mist folk, able to freely change the shape of its body. Shy and eager to make friends, it approaches others but fails to speak up, blurs their senses instead, and slips away again and again.",
@@ -488,7 +486,6 @@ const characterLibrary = {
     name: "Painter 3",
     displayName: "Brakk",
     icon: "💣",
-    iconImage: "brakk.png",
     type: "Painter",
     roleText: "Excels at moving across the field and painting tiles.",
     flavorText: "A ferocious boar-born breakthrough fighter.\nWith a massive custom rig of high-pressure paint canisters strapped to his back, he forces the front line forward through sheer power.\nOnce he plants his feet and braces himself, his zone control becomes overwhelming, leaving enemies with only two choices: fall back, or take the blast.\nHis reckless fighting style puts a heavy strain on his own body, but his rugged frame turns even that pain into a rush of exhilaration.",
@@ -501,7 +498,6 @@ const characterLibrary = {
     name: "Painter 4",
     displayName: "Torga",
     icon: "🐐",
-    iconImage: "torga.png",
     type: "Painter",
     roleText: "Excels at moving across the field and painting tiles.",
     flavorText: "A goatfolk wanderer who has crossed steep slopes and crumbling rocky ground.\nWith a small paint pick hanging from his neck to test his footing, he chooses his path while leaving marks on rock faces and the earth.\nThe rougher the terrain, the more deftly he moves, slipping into a new route from angles no one else would dare to take.\nHis journey, no doubt, would have been a little easier if his maps had not kept ending up eaten.",
@@ -514,7 +510,6 @@ const characterLibrary = {
     name: "Battler 1",
     displayName: "Gran",
     icon: "⚔️",
-    iconImage: "gran.png",
     type: "Battler",
     roleText: "Specializes in battle-focused skills.",
     flavorText: "A heavy beastman with rocky horns, reminiscent of a bull or goat. A fragment of an old castle gate is strapped to one arm like a shield, giving it an imposing presence. Territorial to the core, it hates having its ground or domain disturbed.",
@@ -527,7 +522,6 @@ const characterLibrary = {
     name: "Battler 2",
     displayName: "Vork",
     icon: "🪓",
-    iconImage: "vork.png",
     type: "Battler",
     roleText: "Specializes in battle-focused skills.",
     flavorText: "A wolf-like humanoid fighter with sharp fangs and a body covered in scars. One arm wears a bladed gauntlet, the other is wrapped in hooked chains, giving off the air of someone long used to brutal fights. The more intense the clash, the fiercer it becomes, though it is awkward in calm moments.",
@@ -540,7 +534,6 @@ const characterLibrary = {
     name: "Battler 3",
     displayName: "Naja",
     icon: "🌀",
-    iconImage: "naja.png",
     type: "Battler",
     roleText: "Specializes in battle-focused skills.",
     flavorText: "A cobrafolk manipulator who never misses an opponent’s gaze, habits, or hesitation, subtly steering their decisions before they even realize it. Always cloaked in a deep hood, with hypnotic tools hidden beneath an eerie robe. They stand in silence, and by the moment the opponent takes a single step forward, their mind is already under control. Still, for all the pressure they put on others, they tend to back off a bit when someone pushes back — seems that’s just in their nature.",
@@ -553,7 +546,6 @@ const characterLibrary = {
     name: "Battler 4",
     displayName: "Corven",
     icon: "🐦‍⬛",
-    iconImage: "corven.png",
     type: "Battler",
     roleText: "Specializes in battle-focused skills.",
     flavorText: "A crowfolk who stockpiles resentment, turning every wound into fuel for revenge.\nEach time it takes flight, black feathers drift down and cling to its foe as omens of misfortune, drawing them into inescapable ill luck.\nWilling to sacrifice even its own strength to deepen the curse, it comes across as less merely vengeful and more like a calamity in living form.",
@@ -566,7 +558,6 @@ const characterLibrary = {
     name: "Battler 5",
     displayName: "Moppet",
     icon: "🧹",
-    iconImage: "moppet.png",
     type: "Battler",
     roleText: "Specializes in battle-focused skills.",
     flavorText: "An otterfolk who has worked as a cleaner for many years.\nHis love of cleanliness has long since gone beyond ordinary tidiness, and what he enjoys most is the moment when he polishes a dirty place until it shines. In fact, he feels uneasy in his own overly orderly surroundings, and seems to feel more at home in messy places.\nWhen business clients approach him while he is cleaning, he treats them not as customers, but as “obstacles to the job,” so his impressive workmanship is often ruined by his terrible attitude.",
@@ -579,7 +570,6 @@ const characterLibrary = {
     name: "Trapper 1",
     displayName: "Toto",
     icon: "☠️",
-    iconImage: "toto.png",
     type: "Trapper",
     roleText: "Uses trap and gimmick skills to hinder opponents.",
     flavorText: "A small swamp frogfolk with a deceptively cute appearance. Its round eyes and tiny body seem harmless at first glance, but it carries canisters and sprayers packed with chemicals on its back. Playful and childish, yet once angered it turns the ground into a toxic fog and makes the whole area a nightmare.",
@@ -592,7 +582,6 @@ const characterLibrary = {
     name: "Trapper 2",
     displayName: "Kazan",
     icon: "🕳️",
-    iconImage: "kazan.png",
     type: "Trapper",
     roleText: "Uses trap and gimmick skills to hinder opponents.",
     flavorText: "An underground dweller resembling a mole mixed with an insect. Its forearms end in hard claws suited for digging, and it carries a simple pile driver on its back. It loves digging for its own sake and does not really mean to make others fall in, but people sometimes do and then complain, so it just digs another hole and leaves.",
@@ -605,7 +594,6 @@ const characterLibrary = {
     name: "Trapper 3",
     displayName: "Veska",
     icon: "🕸️",
-    iconImage: "veska.png",
     type: "Trapper",
     roleText: "Uses trap and gimmick skills to hinder opponents.",
     flavorText: "A spider trapper who hunts by quietly spreading snares at their feet.\nUpon the ground they control, they layer a film of venom so thin it is nearly invisible, slowly draining the strength of anyone who steps into it. Their prey should have had both a way forward and a way out — yet before they realize it, they have been driven into a place with no escape.",
@@ -618,7 +606,6 @@ const characterLibrary = {
     name: "Tanker 1",
     displayName: "Brum",
     icon: "🛡️",
-    iconImage: "brum.png",
     type: "Tanker",
     roleText: "Built for survival and typically has high HP.",
     flavorText: "A massive turtle with a metallic shell. Thick armor covers its shoulders and back, and simply standing in front of others makes it feel like a wall of safety. Usually a steady, dependable protector, it can endure danger for a long time, but when faced with a threat too great to handle alone, it retreats into its shell until an ally knocks it back out.",
@@ -631,7 +618,6 @@ const characterLibrary = {
     name: "Tanker 2",
     displayName: "Mog",
     icon: "🎒",
-    iconImage: "mog.png",
     type: "Tanker",
     roleText: "Built for survival and typically has high HP.",
     flavorText: "A small beastman scavenger reminiscent of a badger or raccoon dog. Bottles, sacks, and little barrels jingle from its waist and back. It hoards anything that might be useful and often pulls out just the right item from somewhere. Even it does not fully know where everything is, and sometimes a hit makes its belongings spill out.",
@@ -644,7 +630,6 @@ const characterLibrary = {
     name: "Tanker 3",
     displayName: "Hobbs",
     icon: "🐕",
-    iconImage: "hobbs.png",
     type: "Tanker",
     roleText: "Built for survival and typically has high HP.",
     flavorText: "A mastifffolk who works as an arena guard.\nHe watches minor scuffles with a calm expression, but when real danger is aimed at someone, he immediately steps in with his heavy frame, taking both attacks and shouted complaints in stride.\nDependable as he is, he seems hopeless with machines, and Scrabbit often gets the better of him.",
@@ -657,7 +642,6 @@ const characterLibrary = {
     name: "Supporter 1",
     displayName: "Gallus",
     icon: "📣",
-    iconImage: "gallus.png",
     type: "Supporter",
     roleText: "Boosts nearby allies with supportive skills.",
     flavorText: "The cheer captain of the roosterfolk, rallying allies with a piercing voice and grand, sweeping gestures.\nWrapped in a billowing coat reminiscent of a school uniform jacket, they fire up everyone around them with flags and a megaphone.\nThat well-worn coat seems to be a prized favorite, but once they get too fired up, they tend to fling it off almost immediately — probably because of all the feathers — so it is always dusted with sand.",
@@ -670,7 +654,6 @@ const characterLibrary = {
     name: "Supporter 2",
     displayName: "Pip",
     icon: "🍿",
-    iconImage: "pip.png",
     type: "Supporter",
     roleText: "Boosts nearby allies with supportive skills.",
     flavorText: "A chipmunkfolk who sells popular popcorn at the arena concession stand.\nHer freshly popped popcorn has a mysterious effect: it can wash away fatigue and soothe a dry throat.\nStrangely, no one has ever seen her carry bags or boxes of kernels in her hands.",
@@ -683,8 +666,6 @@ const characterLibrary = {
     name: "Trickster 1",
     displayName: "Mimi",
     icon: "⭐",
-    iconImage: "mimi_star.png",
-    gamblerIconImage: "mimi_gambler.png",
     type: "Trickster",
     roleText: "Uses coins and risky roulette skills to bend the flow of a turn.",
     flavorText: "A beloved tanuki star who captivates crowds with a microphone adorned with a star charm, graceful movements, and a bright, dazzling smile.\nYet in private, away from prying eyes, they pour piles of hard-earned coins onto the gaming table, shouting over every win and loss. Sometimes they even dip into money they absolutely should not be touching, which may be why their home is so remarkably shabby.\nStill, to the public—who know nothing of that side of them—they seem to be a modest, well-behaved idol living an admirably humble life.",
@@ -697,7 +678,6 @@ const characterLibrary = {
     name: "Trickster 2",
     displayName: "Rasca",
     icon: "🦎",
-    iconImage: "rasca.png",
     type: "Trickster",
     roleText: "Uses detached mechanical tails to extend control and create dangerous decoys.",
     flavorText: "A lizardfolk with a tail reinforced by metal, blended with mechanical craftsmanship.\nHis tail can do more than simply detach; even after being separated, it continues to pick up vibrations and nearby presences around it.\nHe skillfully weaves those sensations together to analyze the situation, then deftly controls each individual tail to dominate the fight.\nIts senses seem to be especially sensitive, and whenever one gets stepped on, he makes a deeply displeased face.",
@@ -710,7 +690,6 @@ const characterLibrary = {
     name: "Trickster 3",
     displayName: "Skava",
     icon: "🪶",
-    iconImage: "skavaT.png",
     type: "Trickster",
     roleText: "Plants custom recovery tiles and decaying bait rocks to distort routes and resources.",
     flavorText: "A magpiefolk hunter who makes use of stolen goods.\nHe originally worked at the arena, but after repeatedly helping himself to supplies without permission, it eventually became enough of a problem to get him fired.\nStrangely enough, the moment he was gone, the theft rate shot up, and the arena’s expenses apparently became even worse than when he had still been employed there.",
@@ -719,6 +698,8 @@ const characterLibrary = {
     skillText: "Active: Field Cache turns one normal tile into a recovery tile for the chosen stat. Opponents only receive half recovery from Skava's generated recovery tile. Reuse after 2 rounds. Active: Baited Boulder creates a 20 HP rock on one normal empty tile. It drops a Power Shard when broken, loses 5 HP at the end of each round, and can be reinforced for 15 extra Technique so it cannot be broken until the end of Skava's next turn. Reuse after 2 rounds."
   }
 };
+
+applyCharacterIconAssets(characterLibrary);
 
 const characterDetailSections = {
   painter1: {
@@ -6119,6 +6100,20 @@ function sanitize(text) {
 }
 
 
+function getCharacterIconAsset(characterId, variant = "default") {
+  const assets = window.CHARACTER_ICON_IMAGES?.[characterId];
+  return assets?.[variant] || assets?.default || "";
+}
+
+function applyCharacterIconAssets(library) {
+  Object.entries(window.CHARACTER_ICON_IMAGES || {}).forEach(([characterId, assets]) => {
+    const character = library[characterId];
+    if (!character) return;
+    if (assets.default) character.iconImage = assets.default;
+    if (assets.gambler) character.gamblerIconImage = assets.gambler;
+  });
+}
+
 function getCharacterDefinition(characterOrId) {
   if (!characterOrId) return null;
   if (typeof characterOrId === "string") return characterLibrary[characterOrId] || null;
@@ -6142,7 +6137,7 @@ function getPlayerCharacterIconMarkup(player, className = "characterIconAsset--i
   if (!player) return getCharacterIconMarkup(null, className, decorative);
   if (player.isRascaTailCombatant) {
     const altText = decorative ? "" : "detached tail icon";
-    return `<img class="characterIconAsset ${className}" src="rasca_tail.png" alt="${altText}"${decorative ? ' aria-hidden="true"' : ""}>`;
+    return `<img class="characterIconAsset ${className}" src="${sanitize(getCharacterIconAsset("trickster2", "tail"))}" alt="${altText}"${decorative ? ' aria-hidden="true"' : ""}>`;
   }
   const character = getCharacterDefinition(player.activeCharacterId);
   if (character?.id === "trickster1" && isMimiInGamblerMode(player)) {
@@ -11889,7 +11884,7 @@ function renderBoardActorsAndTransientEffects() {
     cloneElement.style.transform = getAvatarTransform(clone.row, clone.col, clone.ownerIndex);
     cloneElement.innerHTML = `
       <div class="avatarBillboard">
-        <div class="rascaCloneIcon"><img class="rascaTailIconImage" src="rasca_tail.png" alt="" aria-hidden="true"></div>
+        <div class="rascaCloneIcon"><img class="rascaTailIconImage" src="${sanitize(getCharacterIconAsset("trickster2", "tail"))}" alt="" aria-hidden="true"></div>
         <div class="rascaCloneHp">${renderObstacleMiniBar({ hp: Math.max(0, Math.ceil(clone.hp)), maxHp: Math.max(1, Math.ceil(clone.maxHp)) })}</div>
         ${clone.enhanced ? `<div class="rascaCloneAura">⚡</div>` : ""}
       </div>
@@ -12215,7 +12210,7 @@ function renderBoard() {
     cloneElement.style.transform = getAvatarTransform(clone.row, clone.col, clone.ownerIndex);
     cloneElement.innerHTML = `
       <div class="avatarBillboard">
-        <div class="rascaCloneIcon"><img class="rascaTailIconImage" src="rasca_tail.png" alt="" aria-hidden="true"></div>
+        <div class="rascaCloneIcon"><img class="rascaTailIconImage" src="${sanitize(getCharacterIconAsset("trickster2", "tail"))}" alt="" aria-hidden="true"></div>
         <div class="rascaCloneHp">${renderObstacleMiniBar({ hp: Math.max(0, Math.ceil(clone.hp)), maxHp: Math.max(1, Math.ceil(clone.maxHp)) })}</div>
         ${clone.enhanced ? `<div class="rascaCloneAura">⚡</div>` : ""}
       </div>
@@ -14310,7 +14305,7 @@ function buildRascaSnapbackPromptContent(prompt) {
             data-rasca-clone-target-id="${sanitize(clone.id)}"
             aria-pressed="${isSelected ? "true" : "false"}"
           >
-            <span class="playerTargetIcon rascaCloneTargetIcon"><img class="rascaTailIconImage" src="rasca_tail.png" alt="" aria-hidden="true"></span>
+            <span class="playerTargetIcon rascaCloneTargetIcon"><img class="rascaTailIconImage" src="${sanitize(getCharacterIconAsset("trickster2", "tail"))}" alt="" aria-hidden="true"></span>
             <span class="playerTargetInfo">
               <span class="playerTargetName">Detached Tail ${index + 1}</span>
               ${buildRascaCloneTargetHpHtml(clone)}
@@ -19578,7 +19573,7 @@ function getTileDetailPlayerEntries(row, col) {
     entries.push({
       index: clone.ownerIndex,
       name: `${owner.name}'s Tail`,
-      iconMarkup: `<img class="characterIconAsset characterIconAsset--panelTitle" src="rasca_tail.png" alt="" aria-hidden="true">`,
+      iconMarkup: `<img class="characterIconAsset characterIconAsset--panelTitle" src="${sanitize(getCharacterIconAsset("trickster2", "tail"))}" alt="" aria-hidden="true">`,
       detail: `HP ${Math.max(0, Math.ceil(clone.hp))}/${Math.max(1, Math.ceil(clone.maxHp))}${clone.enhanced ? " / Enhanced" : ""}`
     });
   });
