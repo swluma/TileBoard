@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Territory Battle</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="setupScreen" class="screen active">
+      <header class="screenHeader">
+        <h1>Territory Battle</h1>
+        <p>Smartphone turn-based territory battle game</p>
+      </header>
+
+      <section class="card introCard">
+        <h2>How to Play</h2>
+        <p>
+          Players take turns. Roll the Move die and the Space die,
+          choose your movement path, then spend your remaining paint to color nearby tiles. Use special tiles, battles, character swaps,
+          and items to build territory and win on final points.
+        </p>
+      </section>
+
+      <div class="setupPlayers">
+        <section class="card playerSetup" data-player-index="0">
+          <h2>Player 1</h2>
+          <label>
+            Name
+            <input type="text" class="playerNameInput" value="Player 1" maxlength="12" />
+          </label>
+          <label>
+            Active Character
+            <select class="mainCharacterSelect"></select>
+          </label>
+          <label>
+            Reserve Character
+            <select class="subCharacterSelect"></select>
+          </label>
+          <div class="characterPreview"></div>
+        </section>
+
+        <section class="card playerSetup" data-player-index="1">
+          <h2>Player 2</h2>
+          <label>
+            Name
+            <input type="text" class="playerNameInput" value="Player 2" maxlength="12" />
+          </label>
+          <label>
+            Active Character
+            <select class="mainCharacterSelect"></select>
+          </label>
+          <label>
+            Reserve Character
+            <select class="subCharacterSelect"></select>
+          </label>
+          <div class="characterPreview"></div>
+        </section>
+      </div>
+
+      <div class="setupActions">
+        <button id="startGameButton" class="primaryButton largeButton">Start Game</button>
+      </div>
+    </div>
+
+    
+    <div id="gameScreen" class="screen">
+      <main id="gameMain">
+        <div id="boardWrap">
+          <div id="cameraFrame">
+            <div id="board3d"></div>
+          </div>
+
+          <div id="flagCaptureBanner" class="flagCaptureBanner" aria-live="polite" aria-atomic="true"></div>
+          <div id="skillActivationBanner" class="skillActivationBanner" aria-live="polite" aria-atomic="true"></div>
+          <div id="lastRoundBanner" class="lastRoundBanner" aria-live="polite" aria-atomic="true"></div>
+          <div id="roundStartBanner" class="roundStartBanner" aria-live="polite" aria-atomic="true"></div>
+          <div id="inlinePromptPanel" class="inlinePromptPanel hidden" aria-live="polite" aria-atomic="true"></div>
+
+          <div id="battleIntroOverlay" class="battleIntroOverlay hidden" aria-hidden="true">
+            <div class="battleIntroPanel battleIntroPanelLeft">
+              <div class="battleIntroInner">
+                <div id="battleIntroLeftBars" class="battleIntroBars"></div>
+                <div id="battleIntroLeftIcon" class="battleIntroIcon"></div>
+                <div id="battleIntroLeftName" class="battleIntroName"></div>
+              </div>
+            </div>
+            <div class="battleIntroPanel battleIntroPanelRight">
+              <div class="battleIntroInner">
+                <div id="battleIntroRightName" class="battleIntroName"></div>
+                <div id="battleIntroRightIcon" class="battleIntroIcon"></div>
+                <div id="battleIntroRightBars" class="battleIntroBars"></div>
+              </div>
+            </div>
+            <div class="battleIntroCenter" aria-hidden="true">
+              <div class="battleIntroSlash"></div>
+              <div class="battleIntroTitle">Battle!</div>
+            </div>
+          </div>
+
+          <div id="playerDrawerWrap" class="playerDrawerWrap" aria-label="Player Info Drawer">
+            <div id="playerSummaryDock" aria-label="Player Info">
+              <div id="playerSummaryHeader"></div>
+              <div id="playerSummaryTabs" class="playerSummaryTabs"></div>
+              <section id="expandedPlayerPanel" class="expandedPlayerPanel hidden"></section>
+            </div>
+            <div class="playerDrawerFooterRow">
+              <button id="playerDrawerToggle" class="playerDrawerToggle" type="button" aria-expanded="false" aria-controls="playerSummaryDock">Players🔽</button>
+              <div id="teamScoreDock" class="teamScoreDock" aria-label="Team Scores"></div>
+            </div>
+          </div>
+
+          <div id="topRightCluster">
+            <div id="topInfoStrip">
+              <div id="roundInfo" class="hudPill"></div>
+              <div id="turnInfo" class="hudPill emphasis"></div>
+            </div>
+            <div id="zoomDock">
+              <button id="zoomToggleButton" class="compactIconButton" type="button" aria-label="Zoom Controls">🔍</button>
+              <div id="boardTools" class="floatingTray hidden" aria-label="Field Controls">
+                <div class="boardToolRow boardZoomRow">
+                  <input id="zoomSlider" class="zoomSlider" type="range" min="40" max="160" step="1" value="100" aria-label="Zoom Level" />
+                  <button id="zoomResetButton" class="boardToolButton compactResetButton" type="button" aria-label="Reset Zoom and Position">🔄</button>
+                </div>
+                <div id="zoomValue" class="zoomValue">100%</div>
+                <div class="cameraControlRow">
+                  <div id="cameraPad" class="cameraPad" aria-label="Camera Pad">
+                    <div class="cameraPadCross cameraPadCrossH"></div>
+                    <div class="cameraPadCross cameraPadCrossV"></div>
+                    <div id="cameraPadKnob" class="cameraPadKnob"></div>
+                  </div>
+                  <div class="boardToolSideColumn">
+                    <button id="fullscreenButton" class="boardToolButton fullscreenButton" type="button" aria-label="Full Screen">⛶</button>
+                    <button id="interruptMatchButton" class="boardToolButton interruptMatchButton" type="button" aria-label="Abort Match">Abort</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <section id="actionOverlay" class="floatingPanel">
+            <div class="actionModeRow">
+              <div id="moveOddsPanel" class="dieOddsPanel" aria-label="Move Die Odds"></div>
+              <div class="actionModeCards" aria-label="Current Action">
+                <div id="moveModeCard" class="actionModeCard compactCounterCard">
+                  <div id="moveModeChip" class="modeChip" title="Move">👣</div>
+                  <div class="counterValueInline compactCounterValue"><strong id="remainingMoveValue">-</strong></div>
+                </div>
+                <div id="paintModeCard" class="actionModeCard compactCounterCard">
+                  <div id="paintModeChip" class="modeChip" title="Paint">🫟</div>
+                  <div class="counterValueInline compactCounterValue"><strong id="remainingPaintValue">-</strong></div>
+                </div>
+              </div>
+              <div id="paintOddsPanel" class="dieOddsPanel" aria-label="Space Die Odds"></div>
+            </div>
+            <div id="legacyHudValues" hidden>
+              <span id="phaseLabel"></span>
+              <span id="moveDieValue"></span>
+              <span id="paintDieValue"></span>
+            </div>
+            <div id="actionButtons" class="buttonGrid overlayButtons"></div>
+          </section>
+
+          <div id="skillDock" class="bottomDock leftDock">
+            <div class="dockButtons leftActionButtons">
+              <button id="skillToggleButton" class="compactIconButton leftActionButton" type="button" aria-label="Skills">🏑</button>
+              <button id="rollDiceButton" class="compactIconButton leftActionButton" type="button" aria-label="Dice">🎲</button>
+              <button id="restButton" class="compactIconButton leftActionButton" type="button" aria-label="Rest">☕</button>
+            </div>
+            <div id="skillPanel" class="sidePanel leftPanel hidden"></div>
+            <div id="diceBubble" class="actionBubble hidden"></div>
+            <div id="restBubble" class="actionBubble hidden"></div>
+          </div>
+
+          <div id="obstacleActionPanel" class="sidePanel leftPanel obstacleActionPanel hidden"></div>
+          <div id="rightOverlayPanel" class="sidePanel rightPanel hidden"></div>
+
+          <div id="bottomRightDock" class="bottomDock rightDock">
+            <div id="itemTray" class="floatingTray inventoryTray hidden"></div>
+            <div id="swapBubble" class="swapBubble hidden"></div>
+            <div class="dockButtons">
+              <button id="itemToggleButton" class="compactIconButton" type="button" aria-label="Items">👜</button>
+              <button id="swapToggleButton" class="compactIconButton" type="button" aria-label="Swap">🔄</button>
+              <button id="logToggleButton" class="compactIconButton" type="button" aria-label="Log">📜</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+  </div>
+
+  <div id="modalBackdrop" class="modalBackdrop hidden"></div>
+  <div id="modalRoot"></div>
+
+  <template id="messageModalTemplate">
+    <div class="modal card messageModal">
+      <h3 class="modalTitle"></h3>
+      <div class="modalBody"></div>
+      <div class="modalActions"></div>
+    </div>
+  </template>
+
+  <script src="script.js"></script>
+</body>
+</html>
