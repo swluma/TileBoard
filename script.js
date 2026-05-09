@@ -1647,7 +1647,9 @@ const HUB_ACTION_TYPES = Object.freeze({
   REST: "territory_rest",
   MODAL_SYNC: "territory_modal_sync",
   MODAL_CLOSE: "territory_modal_close",
-  MODAL_CLICK: "territory_modal_click"
+  MODAL_CLICK: "territory_modal_click",
+  SETUP_SNAPSHOT: "territory_setup_snapshot",
+  SETUP_ACTION: "territory_setup_action"
 });
 const multiplayer = {
   session: resolveHubSession(),
@@ -1657,6 +1659,7 @@ const multiplayer = {
   playerSlots: new Map(),
   applyingSnapshot: false,
   snapshotTimer: null,
+  setupSnapshotTimer: null,
   actionCounter: 1,
   heartbeatTimer: null,
   statusEl: null,
@@ -1868,18 +1871,328 @@ function configureHubSetupPlayersFromRoom(room = multiplayer.room) {
   updateRoomPlayerSlots(room);
   const players = Array.isArray(room?.players) ? room.players : [];
   players.forEach((roomPlayer) => {
-    const slot = multiplayer.playerSlots.get(roomPlayer.id);
+    const existingSlot = state.setupFlow.players.findIndex((setupPlayer) => setupPlayer?.hubPlayerId === roomPlayer.id);
+    const slot = existingSlot >= 0
+      ? existingSlot
+      : (roomPlayer.id === room?.hostId ? 0 : null);
     const setupPlayer = Number.isInteger(slot) ? state.setupFlow.players[slot] : null;
     if (!setupPlayer) return;
     setupPlayer.name = sanitizeHubPlayerName(roomPlayer.name) || `Player ${slot + 1}`;
     setupPlayer.controller = "human";
+    setupPlayer.hubPlayerId = roomPlayer.id;
   });
   const localSlot = getLocalPlayerSlot();
-  if (Number.isInteger(localSlot) && state.setupFlow.players[localSlot]) {
+  const shouldClaimLocalSlot = multiplayer.session.isHost
+    || state.setupFlow.players.some((setupPlayer) => setupPlayer?.hubPlayerId === multiplayer.session.playerId);
+  if (shouldClaimLocalSlot && Number.isInteger(localSlot) && state.setupFlow.players[localSlot]) {
     state.setupFlow.players[localSlot].name = multiplayer.session.playerName || `Player ${localSlot + 1}`;
     state.setupFlow.players[localSlot].controller = "human";
+    state.setupFlow.players[localSlot].hubPlayerId = multiplayer.session.playerId;
   }
   renderSetupFlow();
+}
+
+function isHostSetupAuthority() {
+  return !multiplayer.session.isRoomPlay || multiplayer.session.isHost;
+}
+
+function getSetupOwnerIdForSlot(playerIndex) {
+  const room = multiplayer.room;
+  const setupPlayer = state.setupFlow?.players?.[playerIndex];
+  if (setupPlayer?.hubPlayerId) return setupPlayer.hubPlayerId;
+  if (playerIndex === 0) return room?.hostId || null;
+  const roomPlayers = Array.isArray(room?.players) ? room.players : [];
+  const guest = roomPlayers.find((player) => player.id !== room?.hostId);
+  return playerIndex === 1 ? guest?.id || null : null;
+}
+
+function isLocalSetupPlayerSlot(playerIndex) {
+  if (!multiplayer.session.isRoomPlay) return true;
+  return getSetupOwnerIdForSlot(playerIndex) === multiplayer.session.playerId;
+}
+
+function canEditSetupPlayer(playerIndex) {
+  if (!multiplayer.session.isRoomPlay) return true;
+  const setupPlayer = state.setupFlow?.players?.[playerIndex];
+  if (!setupPlayer) return false;
+  if (isLocalSetupPlayerSlot(playerIndex)) return true;
+  return multiplayer.session.isHost && isSetupComputer(setupPlayer);
+}
+
+function isGuestJoinedCurrentSetup() {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isGuest) return false;
+  return (state.setupFlow?.players || []).some((setupPlayer) => setupPlayer?.hubPlayerId === multiplayer.session.playerId);
+}
+
+function createSetupSnapshot() {
+  return JSON.parse(JSON.stringify({
+    selectedMapId: state.selectedMapId,
+    matchMode: state.matchMode,
+    setupFlow: state.setupFlow
+  }));
+}
+
+function applySetupSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || multiplayer.session.isHost) return;
+  multiplayer.applyingSnapshot = true;
+  state.selectedMapId = snapshot.selectedMapId || state.selectedMapId || "simpleArena";
+  state.matchMode = snapshot.matchMode || state.matchMode || "ffa";
+  state.setupFlow = snapshot.setupFlow || state.setupFlow;
+  if (state.phase !== "game") {
+    renderSetupFlow();
+  }
+  updateMultiplayerStatus();
+  multiplayer.applyingSnapshot = false;
+}
+
+function scheduleSetupSnapshot(delay = 80) {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isHost || !multiplayer.connected || multiplayer.applyingSnapshot || state.phase === "game") return;
+  if (multiplayer.setupSnapshotTimer) window.clearTimeout(multiplayer.setupSnapshotTimer);
+  multiplayer.setupSnapshotTimer = window.setTimeout(() => {
+    multiplayer.setupSnapshotTimer = null;
+    sendHubAction(HUB_ACTION_TYPES.SETUP_SNAPSHOT, { snapshot: createSetupSnapshot() });
+  }, delay);
+}
+
+function claimSetupSlotForPlayer(playerId, playerName) {
+  if (!state.setupFlow?.players?.length || !playerId) return false;
+  const players = state.setupFlow.players;
+  let index = players.findIndex((setupPlayer) => setupPlayer?.hubPlayerId === playerId);
+  if (index < 0) index = Math.min(1, players.length - 1);
+  if (index < 0) {
+    players.push(createDefaultSetupPlayers(1)[0]);
+    index = 0;
+  }
+  const setupPlayer = players[index];
+  setupPlayer.hubPlayerId = playerId;
+  setupPlayer.controller = "human";
+  setupPlayer.name = sanitizeHubPlayerName(playerName) || `Player ${index + 1}`;
+  setupPlayer.ready = false;
+  if (setupPlayer.mainCharacterId === setupPlayer.subCharacterId) {
+    setupPlayer.subCharacterId = Object.keys(characterLibrary).find((id) => id !== setupPlayer.mainCharacterId) || setupPlayer.subCharacterId;
+  }
+  applyRoyalMarchSetupDefaults();
+  return true;
+}
+
+function releaseSetupSlotForPlayer(playerId) {
+  const index = (state.setupFlow?.players || []).findIndex((setupPlayer) => setupPlayer?.hubPlayerId === playerId);
+  if (index < 0) return false;
+  const setupPlayer = state.setupFlow.players[index];
+  setupPlayer.hubPlayerId = null;
+  setupPlayer.controller = "computer";
+  maybeApplyComputerDefaultName(setupPlayer, index);
+  syncSetupReadyForController(setupPlayer);
+  if (state.setupFlow.picker?.playerIndex === index) state.setupFlow.picker.open = false;
+  if (state.setupFlow.teamPicker?.playerIndex === index) state.setupFlow.teamPicker.open = false;
+  return true;
+}
+
+function applySetupMutationFromRoom(action, actorId) {
+  if (!multiplayer.session.isHost || !state.setupFlow || !action?.op) return;
+  const op = String(action.op);
+  const playerIndex = Number(action.playerIndex);
+  const setupPlayer = Number.isInteger(playerIndex) ? state.setupFlow.players[playerIndex] : null;
+  const ownsPlayer = setupPlayer && getSetupOwnerIdForSlot(playerIndex) === actorId;
+  if (op === "join") {
+    claimSetupSlotForPlayer(actorId, action.playerName);
+  } else if (op === "leave") {
+    releaseSetupSlotForPlayer(actorId);
+  } else if (setupPlayer && ownsPlayer) {
+    if (op === "name") {
+      setupPlayer.name = sanitizeHubPlayerName(action.value).slice(0, 12) || getSetupPlayerDisplayName(setupPlayer, playerIndex);
+      syncSetupReadyForController(setupPlayer);
+    } else if (op === "ready") {
+      setupPlayer.ready = isSetupComputer(setupPlayer) ? isSetupPlayerValid(setupPlayer) : !setupPlayer.ready;
+    } else if (op === "randomize") {
+      const ids = Object.keys(characterLibrary);
+      const firstIndex = randomInt(0, Math.max(0, ids.length - 1));
+      let secondIndex = firstIndex;
+      if (ids.length > 1) while (secondIndex === firstIndex) secondIndex = randomInt(0, ids.length - 1);
+      setupPlayer.mainCharacterId = ids[firstIndex] || ids[0];
+      setupPlayer.subCharacterId = ids[secondIndex] || ids[1] || ids[0];
+      setupPlayer.ready = false;
+    } else if (op === "team") {
+      const teamKey = action.teamKey;
+      if (getAvailableSetupTeamKeys().includes(teamKey)) {
+        setupPlayer.teamKey = normalizeTeamKey(teamKey, playerIndex);
+        setupPlayer.ready = false;
+      }
+      state.setupFlow.teamPicker = { open: false, playerIndex: 0 };
+    } else if (op === "openTeam") {
+      state.setupFlow.teamPicker = { open: true, playerIndex };
+    } else if (op === "openPicker") {
+      const slotKey = action.slotKey === "subCharacterId" ? "subCharacterId" : "mainCharacterId";
+      state.setupFlow.picker = {
+        open: true,
+        playerIndex,
+        slotKey,
+        inspectCharacterId: setupPlayer?.[slotKey] || setupPlayer?.mainCharacterId || null
+      };
+    } else if (op === "inspect") {
+      state.setupFlow.picker.inspectCharacterId = action.characterId;
+    } else if (op === "selectCharacter") {
+      const picker = state.setupFlow.picker;
+      if (picker?.playerIndex === playerIndex) {
+        const slotKey = picker.slotKey === "subCharacterId" ? "subCharacterId" : "mainCharacterId";
+        const selectedCharacterId = action.characterId;
+        const oppositeKey = slotKey === "mainCharacterId" ? "subCharacterId" : "mainCharacterId";
+        if (characterLibrary[selectedCharacterId] && setupPlayer[oppositeKey] !== selectedCharacterId) {
+          setupPlayer[slotKey] = selectedCharacterId;
+          setupPlayer.ready = false;
+          state.setupFlow.picker.open = false;
+        }
+      }
+    } else if (op === "closePicker") {
+      state.setupFlow.picker.open = false;
+    } else if (op === "royalRole") {
+      setRoyalMarchSetupRole(playerIndex, action.role);
+    } else if (op === "cycleRoyalRole") {
+      cycleRoyalMarchSetupRole(playerIndex);
+    }
+    syncSetupReadyForController(setupPlayer);
+  }
+  renderSetupFlow();
+  scheduleSetupSnapshot(20);
+}
+
+function sendGuestSetupAction(action) {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isGuest) return false;
+  sendHubAction(HUB_ACTION_TYPES.SETUP_ACTION, {
+    ...action,
+    playerName: multiplayer.session.playerName
+  });
+  return true;
+}
+
+function handleGuestSetupScreenClick(event) {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isGuest || state.phase === "game") return false;
+  const joinButton = event.target.closest("#setupAddPlayerButton");
+  if (joinButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    sendGuestSetupAction({ op: isGuestJoinedCurrentSetup() ? "leave" : "join" });
+    return true;
+  }
+  if (
+    event.target.closest("#startTutorialButton")
+    || event.target.closest("#setupRandomMapButton")
+    || event.target.closest("[data-map-select]")
+    || event.target.closest("#setupBackToMapsButton")
+    || event.target.closest("#setupMapChooseButton")
+    || event.target.closest("#setupRoyalMarchTutorialButton")
+    || event.target.closest("#setupBackToMapDetailButton")
+    || event.target.closest("#setupModeToggleButton")
+    || event.target.closest("#setupFillBotsButton")
+    || event.target.closest("[data-player-remove]")
+    || event.target.closest("[data-player-controller]")
+    || event.target.closest("#setupPlayButton")
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const readyButton = event.target.closest("[data-player-ready-button]");
+  if (readyButton) {
+    const playerIndex = Number(readyButton.dataset.playerReadyButton);
+    if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "ready", playerIndex });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const randomButton = event.target.closest("[data-player-randomize]");
+  if (randomButton) {
+    const playerIndex = Number(randomButton.dataset.playerRandomize);
+    if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "randomize", playerIndex });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const teamButton = event.target.closest("[data-player-team]");
+  if (teamButton) {
+    const playerIndex = Number(teamButton.dataset.playerTeam);
+    if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "openTeam", playerIndex });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const teamChoiceButton = event.target.closest("[data-setup-team-choice]");
+  if (teamChoiceButton) {
+    const playerIndex = Number(teamChoiceButton.dataset.playerIndex);
+    if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "team", playerIndex, teamKey: teamChoiceButton.dataset.setupTeamChoice });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  if (event.target.closest("[data-setup-team-picker-close]") || (event.target.classList && event.target.classList.contains("setupTeamPickerPopup"))) {
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const slotButton = event.target.closest("[data-character-slot]");
+  if (slotButton) {
+    const playerIndex = Number(slotButton.dataset.playerIndex);
+    if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "openPicker", playerIndex, slotKey: slotButton.dataset.slotKey });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  if (event.target.closest("#setupCharacterOverlayBack") || event.target.closest(".setupCharacterOverlay") === ui.setupCharacterOverlay && event.target === ui.setupCharacterOverlay) {
+    sendGuestSetupAction({ op: "closePicker", playerIndex: getLocalPlayerSlot() });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const inspectButton = event.target.closest("[data-character-inspect]");
+  if (inspectButton) {
+    sendGuestSetupAction({ op: "inspect", playerIndex: getLocalPlayerSlot(), characterId: inspectButton.dataset.characterInspect });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const selectButton = event.target.closest("[data-character-select]");
+  if (selectButton) {
+    const pickerIndex = Number(state.setupFlow?.picker?.playerIndex);
+    if (isLocalSetupPlayerSlot(pickerIndex)) sendGuestSetupAction({ op: "selectCharacter", playerIndex: pickerIndex, characterId: selectButton.dataset.characterSelect });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const royalRoleChoice = event.target.closest("[data-royal-role-choice]");
+  if (royalRoleChoice) {
+    const playerIndex = Number(royalRoleChoice.dataset.royalRoleChoice);
+    if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "royalRole", playerIndex, role: royalRoleChoice.dataset.royalRoleId });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const royalRoleButton = event.target.closest("[data-royal-role]");
+  if (royalRoleButton) {
+    const playerIndex = Number(royalRoleButton.dataset.royalRole);
+    if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "cycleRoyalRole", playerIndex });
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  const card = event.target.closest("[data-setup-player-card]");
+  if (card && !isLocalSetupPlayerSlot(Number(card.dataset.setupPlayerCard))) {
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+  return false;
 }
 
 function sanitizeSnapshotValue(key, value) {
@@ -2051,8 +2364,17 @@ async function handleRemoteHubAction(action, fromPlayerId) {
     applyMultiplayerSnapshot(action.payload?.snapshot);
     return;
   }
+  if (action.type === HUB_ACTION_TYPES.SETUP_SNAPSHOT) {
+    applySetupSnapshot(action.payload?.snapshot);
+    return;
+  }
+  if (action.type === HUB_ACTION_TYPES.SETUP_ACTION) {
+    applySetupMutationFromRoom(action.payload, fromPlayerId);
+    return;
+  }
   if (action.type === HUB_ACTION_TYPES.REQUEST_SNAPSHOT) {
     if (multiplayer.session.isHost) multiplayerScheduleSnapshot(20);
+    if (multiplayer.session.isHost) scheduleSetupSnapshot(20);
     return;
   }
   if (action.type === HUB_ACTION_TYPES.MODAL_SYNC) {
@@ -3445,6 +3767,7 @@ function renderRoyalMarchRolePanel(setupPlayer, playerIndex) {
   const players = state.setupFlow?.players || [];
   const teamKey = normalizeTeamKey(setupPlayer.teamKey, playerIndex);
   const currentRole = getRoyalMarchRoleForSetupPlayer(setupPlayer, playerIndex);
+  const canEditRole = canEditSetupPlayer(playerIndex);
   return `
     <div class="setupRoyalRolePanel" role="group" aria-label="Royal piece role">
       ${ROYAL_MARCH_ROLE_ORDER.map((role) => {
@@ -3452,7 +3775,7 @@ function renderRoyalMarchRolePanel(setupPlayer, playerIndex) {
         const count = getRoyalMarchTeamRoleCount(players, teamKey, role);
         const max = definition.maxPerTeam;
         const selected = currentRole === role;
-        const disabled = !canSelectRoyalMarchSetupRole(playerIndex, role);
+        const disabled = !canEditRole || !canSelectRoyalMarchSetupRole(playerIndex, role);
         return `
           <button type="button" class="setupRoyalRoleChoice ${selected ? "is-selected" : ""}" data-royal-role-choice="${playerIndex}" data-royal-role-id="${sanitize(role)}" ${disabled ? "disabled aria-disabled=\"true\"" : ""} aria-label="${sanitize(definition.label)}">
             <span class="setupRoyalRoleCount">${count}/${max}</span>
@@ -5668,6 +5991,8 @@ function handleSetupScreenClick(event) {
     return;
   }
 
+  if (handleGuestSetupScreenClick(event)) return;
+
   if (event.target.closest("#startTutorialButton")) {
     void startTutorial();
     return;
@@ -5736,6 +6061,12 @@ function handleSetupScreenClick(event) {
     if (state.setupFlow.players.length >= 8) return;
     const nextIndex = state.setupFlow.players.length;
     const newPlayer = createDefaultSetupPlayers(nextIndex + 1)[nextIndex];
+    if (multiplayer.session.isRoomPlay && multiplayer.session.isHost) {
+      newPlayer.controller = "computer";
+      newPlayer.hubPlayerId = null;
+      maybeApplyComputerDefaultName(newPlayer, nextIndex);
+      syncSetupReadyForController(newPlayer);
+    }
     if (isRoyalMarchMap()) {
       newPlayer.teamKey = getRoyalMarchTeamForIndex(nextIndex, nextIndex + 1);
       newPlayer.royalRole = getDefaultRoyalMarchRole(nextIndex, nextIndex + 1);
@@ -5750,6 +6081,7 @@ function handleSetupScreenClick(event) {
     let changed = false;
     state.setupFlow.players.forEach((setupPlayer, index) => {
       if (isSetupPlayerReady(setupPlayer)) return;
+      if (multiplayer.session.isRoomPlay && setupPlayer.hubPlayerId) return;
       if (getSetupPlayerController(setupPlayer) !== "computer") {
         setupPlayer.controller = "computer";
         maybeApplyComputerDefaultName(setupPlayer, index);
@@ -5772,6 +6104,7 @@ function handleSetupScreenClick(event) {
     if (state.setupFlow.players.length <= minPlayers) return;
     const playerIndex = Number(removePlayerButton.dataset.playerRemove);
     if (!Number.isInteger(playerIndex) || playerIndex < 0 || playerIndex >= state.setupFlow.players.length) return;
+    if (multiplayer.session.isRoomPlay && !isSetupComputer(state.setupFlow.players[playerIndex])) return;
     state.setupFlow.players.splice(playerIndex, 1);
     applyRoyalMarchSetupDefaults();
     if (state.setupFlow.picker.playerIndex >= state.setupFlow.players.length) {
@@ -5785,6 +6118,7 @@ function handleSetupScreenClick(event) {
   const readyButton = event.target.closest("[data-player-ready-button]");
   if (readyButton) {
     const playerIndex = Number(readyButton.dataset.playerReadyButton);
+    if (!canEditSetupPlayer(playerIndex)) return;
     const setupPlayer = state.setupFlow.players[playerIndex];
     if (!setupPlayer) return;
     if (isSetupComputer(setupPlayer)) {
@@ -5800,6 +6134,7 @@ function handleSetupScreenClick(event) {
   const randomButton = event.target.closest("[data-player-randomize]");
   if (randomButton) {
     const playerIndex = Number(randomButton.dataset.playerRandomize);
+    if (!canEditSetupPlayer(playerIndex)) return;
     const setupPlayer = state.setupFlow.players[playerIndex];
     if (!setupPlayer) return;
     const ids = Object.keys(characterLibrary);
@@ -5820,6 +6155,7 @@ function handleSetupScreenClick(event) {
   const teamButton = event.target.closest("[data-player-team]");
   if (teamButton) {
     const playerIndex = Number(teamButton.dataset.playerTeam);
+    if (!canEditSetupPlayer(playerIndex)) return;
     const setupPlayer = state.setupFlow.players[playerIndex];
     if (!setupPlayer) return;
     state.setupFlow.teamPicker = {
@@ -5833,6 +6169,7 @@ function handleSetupScreenClick(event) {
   const teamChoiceButton = event.target.closest("[data-setup-team-choice]");
   if (teamChoiceButton) {
     const playerIndex = Number(teamChoiceButton.dataset.playerIndex);
+    if (!canEditSetupPlayer(playerIndex)) return;
     const teamKey = teamChoiceButton.dataset.setupTeamChoice;
     const setupPlayer = state.setupFlow.players[playerIndex];
     if (!setupPlayer || !getAvailableSetupTeamKeys().includes(teamKey)) return;
@@ -5853,6 +6190,7 @@ function handleSetupScreenClick(event) {
   const slotButton = event.target.closest("[data-character-slot]");
   if (slotButton) {
     const playerIndex = Number(slotButton.dataset.playerIndex);
+    if (!canEditSetupPlayer(playerIndex)) return;
     const slotKey = slotButton.dataset.slotKey;
     const setupPlayer = state.setupFlow.players[playerIndex];
     state.setupFlow.picker.open = true;
@@ -5880,6 +6218,7 @@ function handleSetupScreenClick(event) {
   if (selectButton) {
     const selectedCharacterId = selectButton.dataset.characterSelect;
     const picker = state.setupFlow.picker;
+    if (!canEditSetupPlayer(picker.playerIndex)) return;
     const setupPlayer = state.setupFlow.players[picker.playerIndex];
     const oppositeKey = picker.slotKey === "mainCharacterId" ? "subCharacterId" : "mainCharacterId";
     const ignoreReserveConflict = isSetupComputer(setupPlayer) && picker.slotKey === "mainCharacterId";
@@ -5904,8 +6243,11 @@ function handleSetupScreenClick(event) {
   const controllerToggle = event.target.closest("[data-player-controller]");
   if (controllerToggle) {
     const playerIndex = Number(controllerToggle.dataset.playerController);
+    if (multiplayer.session.isRoomPlay && !multiplayer.session.isHost) return;
+    if (multiplayer.session.isRoomPlay && multiplayer.session.isHost && !canEditSetupPlayer(playerIndex)) return;
     const setupPlayer = state.setupFlow.players[playerIndex];
     if (!setupPlayer) return;
+    if (multiplayer.session.isRoomPlay && setupPlayer.hubPlayerId) return;
     setupPlayer.controller = getSetupPlayerController(setupPlayer) === "computer" ? "human" : "computer";
     if (!isSetupComputer(setupPlayer) && setupPlayer.mainCharacterId === setupPlayer.subCharacterId) {
       const fallbackReserve = Object.keys(characterLibrary).find((id) => id !== setupPlayer.mainCharacterId) || setupPlayer.subCharacterId;
@@ -5925,6 +6267,7 @@ function handleSetupScreenClick(event) {
   if (royalRoleChoice) {
     if (!isRoyalMarchMap()) return;
     const playerIndex = Number(royalRoleChoice.dataset.royalRoleChoice);
+    if (!canEditSetupPlayer(playerIndex)) return;
     const role = royalRoleChoice.dataset.royalRoleId;
     setRoyalMarchSetupRole(playerIndex, role);
     renderSetupPlayerCards();
@@ -5936,6 +6279,7 @@ function handleSetupScreenClick(event) {
   if (royalRoleButton) {
     if (!isRoyalMarchMap()) return;
     const playerIndex = Number(royalRoleButton.dataset.royalRole);
+    if (!canEditSetupPlayer(playerIndex)) return;
     cycleRoyalMarchSetupRole(playerIndex);
     renderSetupPlayerCards();
     renderSetupFooter();
@@ -5952,10 +6296,19 @@ function handleSetupScreenInput(event) {
   const nameInput = event.target.closest("[data-player-name-input]");
   if (nameInput) {
     const playerIndex = Number(nameInput.dataset.playerIndex);
+    if (multiplayer.session.isRoomPlay && multiplayer.session.isGuest) {
+      if (isLocalSetupPlayerSlot(playerIndex)) sendGuestSetupAction({ op: "name", playerIndex, value: nameInput.value.slice(0, 12) });
+      return;
+    }
+    if (!canEditSetupPlayer(playerIndex)) {
+      renderSetupPlayerCards();
+      return;
+    }
     const setupPlayer = state.setupFlow.players[playerIndex];
     setupPlayer.name = nameInput.value.slice(0, 12);
     syncSetupReadyForController(setupPlayer);
     renderSetupFooter();
+    scheduleSetupSnapshot();
     return;
   }
 
@@ -5971,6 +6324,7 @@ function renderSetupFlow() {
   renderSetupTeamPickerPopup();
   renderCharacterPicker();
   updateFullscreenButton();
+  scheduleSetupSnapshot();
 }
 
 function renderSetupVisibility() {
@@ -5978,6 +6332,7 @@ function renderSetupVisibility() {
   ui.mapSelectView?.classList.toggle("active", view === "map-select");
   ui.mapDetailView?.classList.toggle("active", view === "map-detail");
   ui.playerSetupView?.classList.toggle("active", view === "player-setup");
+  scheduleSetupSnapshot();
 }
 
 function getMapTileClass(type, listMode = false) {
@@ -6545,33 +6900,42 @@ function renderSetupPlayerCards() {
     const cardClass = isSetupPlayerReady(setupPlayer) ? "is-ready" : "";
     const teamStyle = matchMode === "team" ? ` style="--setup-team-accent:${sanitize(teamInfo.accent)};"` : "";
     const roleDefinition = royalMarch ? ROYAL_MARCH_ROLE_DEFINITIONS[getRoyalMarchRoleForSetupPlayer(setupPlayer, index)] : null;
+    const editable = canEditSetupPlayer(index);
+    const roomOwned = multiplayer.session.isRoomPlay && isLocalSetupPlayerSlot(index);
+    const lockedAttr = editable ? "" : "disabled aria-disabled=\"true\"";
+    const nameLockAttr = editable ? "" : "readonly aria-readonly=\"true\"";
+    const removable = state.setupFlow.players.length > (royalMarch ? ROYAL_MARCH_MIN_PLAYERS : 2)
+      && (!multiplayer.session.isRoomPlay || (multiplayer.session.isHost && isSetupComputer(setupPlayer)));
+    const controllerLockedAttr = multiplayer.session.isRoomPlay && (!multiplayer.session.isHost || !editable || !!setupPlayer.hubPlayerId)
+      ? "disabled aria-disabled=\"true\""
+      : "";
     return `
-      <section class="setupPlayerCard card ${cardClass} ${matchMode === "team" ? `team-${sanitize(teamKey)}` : ""}" data-setup-player-card="${index}"${teamStyle}>
-        ${state.setupFlow.players.length > (royalMarch ? ROYAL_MARCH_MIN_PLAYERS : 2) ? `<button type="button" class="setupPlayerRemoveButton" data-player-remove="${index}" aria-label="Remove player">✖</button>` : ""}
+      <section class="setupPlayerCard card ${cardClass} ${editable ? "is-editable" : "is-locked"} ${roomOwned ? "is-local-room-player" : ""} ${matchMode === "team" ? `team-${sanitize(teamKey)}` : ""}" data-setup-player-card="${index}"${teamStyle}>
+        ${removable ? `<button type="button" class="setupPlayerRemoveButton" data-player-remove="${index}" aria-label="Remove player">✖</button>` : ""}
         <div class="setupPlayerCardHeader">
           <label class="setupPlayerNameBlock">
             <span>Player Name</span>
-            <input type="text" maxlength="12" value="${sanitize(getSetupPlayerDisplayName(setupPlayer, index))}" data-player-name-input data-player-index="${index}">
+            <input type="text" maxlength="12" value="${sanitize(getSetupPlayerDisplayName(setupPlayer, index))}" data-player-name-input data-player-index="${index}" ${nameLockAttr}>
           </label>
-          <button type="button" class="setupReadyButton ${setupPlayer.ready ? "is-ready" : "is-waiting"}${isSetupComputer(setupPlayer) ? " is-locked" : ""}" data-player-ready-button="${index}" aria-label="Toggle ready">✅</button>
-          <button type="button" class="setupControllerToggle ${getSetupPlayerController(setupPlayer) === "computer" ? "is-computer" : "is-human"}" data-player-controller="${index}" aria-label="${getSetupPlayerController(setupPlayer) === "computer" ? "Switch to Human" : "Switch to Computer"}" title="${getSetupPlayerController(setupPlayer) === "computer" ? "CPU" : "Human"}">${getSetupPlayerController(setupPlayer) === "computer" ? "🤖" : "👤"}</button>
-          ${matchMode === "team" ? `<button type="button" class="setupTeamButton team-${sanitize(teamKey)}" data-player-team="${index}" aria-label="${sanitize(teamInfo.label)}">⚑</button>` : ""}
-          <button type="button" class="setupRandomizeButton" data-player-randomize="${index}" aria-label="Randomize characters">🎲</button>
+          <button type="button" class="setupReadyButton ${setupPlayer.ready ? "is-ready" : "is-waiting"}${isSetupComputer(setupPlayer) ? " is-locked" : ""}" data-player-ready-button="${index}" aria-label="Toggle ready" ${lockedAttr}>✅</button>
+          <button type="button" class="setupControllerToggle ${getSetupPlayerController(setupPlayer) === "computer" ? "is-computer" : "is-human"}" data-player-controller="${index}" aria-label="${getSetupPlayerController(setupPlayer) === "computer" ? "Switch to Human" : "Switch to Computer"}" title="${getSetupPlayerController(setupPlayer) === "computer" ? "CPU" : "Human"}" ${controllerLockedAttr}>${getSetupPlayerController(setupPlayer) === "computer" ? "🤖" : "👤"}</button>
+          ${matchMode === "team" ? `<button type="button" class="setupTeamButton team-${sanitize(teamKey)}" data-player-team="${index}" aria-label="${sanitize(teamInfo.label)}" ${lockedAttr}>⚑</button>` : ""}
+          <button type="button" class="setupRandomizeButton" data-player-randomize="${index}" aria-label="Randomize characters" ${lockedAttr}>🎲</button>
         </div>
         ${royalMarch && roleDefinition ? renderRoyalMarchRolePanel(setupPlayer, index) : ""}
         <div class="setupCharacterSlots ${isSetupComputer(setupPlayer) ? "is-computer" : ""}">
-          ${renderSetupCharacterSlot(setupPlayer, index, "mainCharacterId", "Starter", starter)}
-          ${isSetupComputer(setupPlayer) ? "" : renderSetupCharacterSlot(setupPlayer, index, "subCharacterId", "Reserve", reserve)}
+          ${renderSetupCharacterSlot(setupPlayer, index, "mainCharacterId", "Starter", starter, editable)}
+          ${isSetupComputer(setupPlayer) ? "" : renderSetupCharacterSlot(setupPlayer, index, "subCharacterId", "Reserve", reserve, editable)}
         </div>
       </section>
     `;
   }).join("");
 }
 
-function renderSetupCharacterSlot(setupPlayer, playerIndex, slotKey, label, character) {
+function renderSetupCharacterSlot(setupPlayer, playerIndex, slotKey, label, character, editable = true) {
   if (!character) return "";
   return `
-    <button type="button" class="setupCharacterSlot" data-character-slot data-player-index="${playerIndex}" data-slot-key="${slotKey}">
+    <button type="button" class="setupCharacterSlot" data-character-slot data-player-index="${playerIndex}" data-slot-key="${slotKey}" ${editable ? "" : "disabled aria-disabled=\"true\""}>
       <span class="setupCharacterSlotRole">${sanitize(label)}</span>
       <span class="setupCharacterSlotCircle">${getCharacterIconMarkup(character, "characterIconAsset--setupSlot")}</span>
       <span class="setupCharacterSlotName">${sanitize(character.displayName || character.name)}</span>
@@ -6588,6 +6952,7 @@ function renderSetupTeamPickerPopup() {
     ui.setupTeamPickerPopup.classList.add("hidden");
     ui.setupTeamPickerPopup.setAttribute("aria-hidden", "true");
     ui.setupTeamPickerPopup.innerHTML = "";
+    scheduleSetupSnapshot();
     return;
   }
   const currentTeamKey = normalizeTeamKey(setupPlayer.teamKey, playerIndex);
@@ -6624,6 +6989,7 @@ function renderSetupTeamPickerPopup() {
   `;
   ui.setupTeamPickerPopup.classList.remove("hidden");
   ui.setupTeamPickerPopup.setAttribute("aria-hidden", "false");
+  scheduleSetupSnapshot();
 }
 
 function renderSetupFooter() {
@@ -6640,11 +7006,27 @@ function renderSetupFooter() {
   const addButton = document.getElementById("setupAddPlayerButton");
   const fillButton = document.getElementById("setupFillBotsButton");
   if (addButton) {
-    const addLocked = state.setupFlow.players.length >= (royalMarch ? ROYAL_MARCH_MAX_PLAYERS : 8);
-    addButton.disabled = addLocked;
-    addButton.classList.toggle("is-locked", addLocked);
+    if (multiplayer.session.isRoomPlay && multiplayer.session.isGuest) {
+      const joined = isGuestJoinedCurrentSetup();
+      addButton.textContent = joined ? "Leave" : "Join";
+      addButton.disabled = !multiplayer.connected;
+      addButton.classList.toggle("is-locked", !multiplayer.connected);
+    } else {
+      addButton.textContent = multiplayer.session.isRoomPlay ? "Add CPU" : "＋";
+      const addLocked = state.setupFlow.players.length >= (royalMarch ? ROYAL_MARCH_MAX_PLAYERS : 8);
+      addButton.disabled = addLocked;
+      addButton.classList.toggle("is-locked", addLocked);
+    }
   }
-  if (fillButton) fillButton.textContent = "Fill Bots";
+  if (fillButton) {
+    fillButton.textContent = "Fill Bots";
+    fillButton.disabled = multiplayer.session.isRoomPlay && !multiplayer.session.isHost;
+    fillButton.classList.toggle("is-locked", fillButton.disabled);
+  }
+  if (ui.setupModeToggleButton && multiplayer.session.isRoomPlay && !multiplayer.session.isHost) {
+    ui.setupModeToggleButton.disabled = true;
+    ui.setupModeToggleButton.classList.add("is-locked");
+  }
   ui.setupStageTopLabel.innerHTML = `<span class="setupStageTopPrefix">Stage</span><strong>${sanitize(mapDefinition.name)}</strong>`;
   const readyChips = state.setupFlow.players.map((setupPlayer, index) => {
     const statusClass = isSetupPlayerReady(setupPlayer) ? "ready" : (isSetupPlayerValid(setupPlayer) ? "waiting" : "invalid");
@@ -6657,7 +7039,8 @@ function renderSetupFooter() {
     if (!validation.ok) readyChips.push(`<div class="setupReadyChip invalid"><span>${sanitize(validation.reason)}</span><strong>Map rule</strong></div>`);
   }
   ui.setupReadySummary.innerHTML = readyChips.join("");
-  ui.setupPlayButton.disabled = !canStartFromSetup();
+  ui.setupPlayButton.disabled = !canStartFromSetup() || (multiplayer.session.isRoomPlay && !multiplayer.session.isHost);
+  scheduleSetupSnapshot();
 }
 
 function renderCharacterPicker() {
@@ -6665,6 +7048,7 @@ function renderCharacterPicker() {
   const picker = state.setupFlow.picker;
   const setupPlayer = state.setupFlow.players[picker.playerIndex];
   const slotLabel = picker.slotKey === "mainCharacterId" ? "Starter" : "Reserve";
+  const editable = canEditSetupPlayer(picker.playerIndex);
   const overlayWillOpen = !!picker.open;
   if (!overlayWillOpen && ui.setupCharacterOverlay.contains(document.activeElement)) {
     document.activeElement.blur();
@@ -6676,7 +7060,10 @@ function renderCharacterPicker() {
   ui.setupCharacterOverlay.classList.toggle("hidden", !overlayWillOpen);
   ui.setupCharacterOverlay.toggleAttribute("inert", !overlayWillOpen);
   ui.setupCharacterOverlay.setAttribute("aria-hidden", overlayWillOpen ? "false" : "true");
-  if (!overlayWillOpen || !setupPlayer) return;
+  if (!overlayWillOpen || !setupPlayer) {
+    scheduleSetupSnapshot();
+    return;
+  }
 
   ui.setupCharacterOverlayTitle.textContent = `${getSetupPlayerDisplayName(setupPlayer, picker.playerIndex)} · Select ${slotLabel}`;
   const oppositeKey = picker.slotKey === "mainCharacterId" ? "subCharacterId" : "mainCharacterId";
@@ -6690,7 +7077,7 @@ function renderCharacterPicker() {
           ${getCharacterIconMarkup(character, "characterIconAsset--setupPicker")}
           <span class="setupCharacterInspectName">${sanitize(character.displayName || character.name)}</span>
         </button>
-        <button type="button" class="primaryButton setupCharacterSelectButton" data-character-select="${sanitize(character.id)}" ${blocked ? "disabled" : ""}>${blocked ? "Used" : "Select"}</button>
+        <button type="button" class="primaryButton setupCharacterSelectButton" data-character-select="${sanitize(character.id)}" ${blocked || !editable ? "disabled" : ""}>${blocked ? "Used" : "Select"}</button>
       </div>
     `;
   }).join("");
@@ -6703,6 +7090,7 @@ function renderCharacterPicker() {
   ui.setupCharacterDetailPanel.innerHTML = detailOpen
     ? buildCharacterDetailContent(targetCharacter, "Character Info", null)
     : "";
+  scheduleSetupSnapshot();
 }
 
 function sanitize(text) {
