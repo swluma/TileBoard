@@ -1618,6 +1618,618 @@ const state = {
   }
 };
 
+const HUB_GAME_ID = "tileboard";
+const HUB_ROOM_EVENTS = Object.freeze({
+  JOIN_ROOM: "join_room",
+  LEAVE_ROOM: "leave_room",
+  PLAYER_READY: "player_ready",
+  START_GAME: "start_game",
+  GAME_ACTION: "game_action",
+  SYNC_REQUEST: "sync_request",
+  HEARTBEAT: "heartbeat"
+});
+const HUB_SERVER_EVENTS = Object.freeze({
+  ROOM_JOINED: "room_joined",
+  ROOM_STATE: "room_state",
+  PLAYER_JOINED: "player_joined",
+  GAME_STARTED: "game_started",
+  GAME_ACTION: "game_action",
+  SYNC_STATE: "sync_state",
+  ERROR: "error",
+  ROOM_CLOSED: "room_closed"
+});
+const HUB_ACTION_TYPES = Object.freeze({
+  SNAPSHOT: "territory_snapshot",
+  REQUEST_SNAPSHOT: "territory_request_snapshot",
+  SELECT_TILE: "territory_select_tile",
+  CONTROL_ACTION: "territory_control_action",
+  ROLL_DICE: "territory_roll_dice",
+  REST: "territory_rest",
+  MODAL_SYNC: "territory_modal_sync",
+  MODAL_CLOSE: "territory_modal_close",
+  MODAL_CLICK: "territory_modal_click"
+});
+const multiplayer = {
+  session: resolveHubSession(),
+  socket: null,
+  connected: false,
+  room: null,
+  playerSlots: new Map(),
+  applyingSnapshot: false,
+  snapshotTimer: null,
+  actionCounter: 1,
+  heartbeatTimer: null,
+  statusEl: null,
+  lastError: ""
+};
+
+function safeStorageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {}
+}
+
+function sanitizeHubRoomCode(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+}
+
+function sanitizeHubPlayerName(value) {
+  return String(value || "").replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 24);
+}
+
+function createStableHubPlayerId(mode, roomCode) {
+  const storageKey = `${HUB_GAME_ID}:player-id:${mode || "local"}:${roomCode || "local"}`;
+  const existing = safeStorageGet(storageKey);
+  if (existing) return existing;
+  const generated = `${HUB_GAME_ID}-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  safeStorageSet(storageKey, generated);
+  return generated;
+}
+
+function resolveHubSession() {
+  const params = new URLSearchParams(window.location.search || "");
+  const requestedMode = String(params.get("mode") || "local").toLowerCase();
+  const mode = ["local", "host", "join"].includes(requestedMode) ? requestedMode : "local";
+  const roomCode = sanitizeHubRoomCode(params.get("room"));
+  const playerName = sanitizeHubPlayerName(params.get("name")) || (mode === "join" ? "Player 2" : "Player 1");
+  const wsUrl = String(params.get("ws") || "").trim();
+  const isRoomPlay = mode === "host" || mode === "join";
+  return {
+    fromHub: params.get("hub") === "1" || params.has("mode") || params.has("room") || params.has("ws"),
+    mode,
+    isRoomPlay,
+    isHost: mode === "host",
+    isGuest: mode === "join",
+    roomCode: isRoomPlay ? roomCode : null,
+    playerName,
+    playerId: createStableHubPlayerId(mode, roomCode),
+    wsUrl,
+    valid: !isRoomPlay || (!!roomCode && !!wsUrl && typeof WebSocket === "function")
+  };
+}
+
+function ensureMultiplayerStatusEl() {
+  if (multiplayer.statusEl || !document.body) return multiplayer.statusEl;
+  const el = document.createElement("div");
+  el.id = "hubMultiplayerStatus";
+  el.style.cssText = [
+    "position:fixed",
+    "left:calc(10px + env(safe-area-inset-left, 0px))",
+    "bottom:calc(10px + env(safe-area-inset-bottom, 0px))",
+    "z-index:9999",
+    "max-width:min(360px, calc(100vw - 20px))",
+    "padding:8px 10px",
+    "border-radius:8px",
+    "background:rgba(9, 14, 24, 0.82)",
+    "color:#f8fbff",
+    "font:600 12px/1.3 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    "box-shadow:0 8px 22px rgba(0,0,0,0.28)",
+    "pointer-events:none"
+  ].join(";");
+  document.body.appendChild(el);
+  multiplayer.statusEl = el;
+  return el;
+}
+
+function updateMultiplayerStatus(message = null) {
+  if (!multiplayer.session.fromHub) return;
+  const el = ensureMultiplayerStatusEl();
+  if (!el) return;
+  if (!multiplayer.session.isRoomPlay) {
+    el.textContent = "Hub local play";
+    return;
+  }
+  const room = multiplayer.session.roomCode || "----";
+  const role = multiplayer.session.isHost ? "Host" : "Guest";
+  const connected = multiplayer.connected ? "connected" : "connecting";
+  el.textContent = message || `${role} room ${room}: ${connected}`;
+}
+
+function hubSend(type, payload = {}) {
+  if (!multiplayer.socket || multiplayer.socket.readyState !== WebSocket.OPEN) return false;
+  multiplayer.socket.send(JSON.stringify({ type, payload }));
+  return true;
+}
+
+function createHubAction(type, payload = {}) {
+  return {
+    id: `${HUB_GAME_ID}-${Date.now().toString(36)}-${multiplayer.actionCounter++}`,
+    type,
+    createdAt: Date.now(),
+    actorId: multiplayer.session.playerId,
+    payload
+  };
+}
+
+function sendHubAction(type, payload = {}) {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.connected) return false;
+  return hubSend(HUB_ROOM_EVENTS.GAME_ACTION, {
+    roomCode: multiplayer.session.roomCode,
+    action: createHubAction(type, payload)
+  });
+}
+
+function cssEscapeValue(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(value));
+  return String(value).replace(/["\\]/g, "\\$&");
+}
+
+function getHubElementSelector(element) {
+  if (!element || element.nodeType !== 1) return "";
+  if (element.id) return `#${cssEscapeValue(element.id)}`;
+  const dataAttribute = Array.from(element.attributes || []).find((attribute) => attribute.name.startsWith("data-"));
+  if (dataAttribute) {
+    return `[${dataAttribute.name}="${cssEscapeValue(dataAttribute.value)}"]`;
+  }
+  return "";
+}
+
+function syncOpenModalToRoom() {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isHost || !multiplayer.connected || multiplayer.applyingSnapshot) return;
+  sendHubAction(HUB_ACTION_TYPES.MODAL_SYNC, {
+    html: ui.modalRoot.innerHTML,
+    backdropClassName: ui.modalBackdrop.className
+  });
+}
+
+function syncClosedModalToRoom() {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isHost || !multiplayer.connected || multiplayer.applyingSnapshot) return;
+  sendHubAction(HUB_ACTION_TYPES.MODAL_CLOSE);
+}
+
+function applyRemoteModalSync(payload) {
+  if (multiplayer.session.isHost) return;
+  ui.modalBackdrop.className = payload?.backdropClassName || "modalBackdrop";
+  ui.modalBackdrop.classList.remove("hidden");
+  ui.modalRoot.innerHTML = payload?.html || "";
+  state.activeModals = Array.from(ui.modalRoot.children);
+}
+
+function applyRemoteModalClose() {
+  if (multiplayer.session.isHost) return;
+  ui.modalRoot.innerHTML = "";
+  state.activeModals = [];
+  ui.modalBackdrop.classList.add("hidden");
+}
+
+function clickHostModalSelector(selector) {
+  if (!multiplayer.session.isHost || !selector) return;
+  const target = ui.modalRoot.querySelector(selector);
+  if (!target || target.disabled || target.getAttribute("aria-disabled") === "true") return;
+  target.click();
+  window.setTimeout(() => {
+    if (ui.modalRoot.children.length) syncOpenModalToRoom();
+  }, 60);
+}
+
+function updateRoomPlayerSlots(room = multiplayer.room) {
+  multiplayer.playerSlots.clear();
+  const players = Array.isArray(room?.players) ? room.players : [];
+  const hostId = room?.hostId || players[0]?.id || null;
+  const hostPlayer = players.find((player) => player.id === hostId) || players[0] || null;
+  const guestPlayer = players.find((player) => player.id !== hostPlayer?.id) || null;
+  if (hostPlayer?.id) multiplayer.playerSlots.set(hostPlayer.id, 0);
+  if (guestPlayer?.id) multiplayer.playerSlots.set(guestPlayer.id, 1);
+}
+
+function getLocalPlayerSlot() {
+  if (!multiplayer.session.isRoomPlay) return null;
+  if (multiplayer.playerSlots.has(multiplayer.session.playerId)) {
+    return multiplayer.playerSlots.get(multiplayer.session.playerId);
+  }
+  return multiplayer.session.isHost ? 0 : 1;
+}
+
+function getRemoteActionPlayerIndex(fromPlayerId) {
+  if (multiplayer.playerSlots.has(fromPlayerId)) return multiplayer.playerSlots.get(fromPlayerId);
+  return fromPlayerId === multiplayer.session.playerId ? getLocalPlayerSlot() : 1;
+}
+
+function isLocalRoomPlayerTurn() {
+  if (!multiplayer.session.isRoomPlay) return true;
+  return state.currentPlayerIndex === getLocalPlayerSlot();
+}
+
+function canLocalInteractWithRoomTurn() {
+  if (!multiplayer.session.isRoomPlay) return true;
+  return isLocalRoomPlayerTurn();
+}
+
+function configureHubSetupPlayersFromRoom(room = multiplayer.room) {
+  if (!multiplayer.session.isRoomPlay || !state.setupFlow?.players?.length) return;
+  updateRoomPlayerSlots(room);
+  const players = Array.isArray(room?.players) ? room.players : [];
+  players.forEach((roomPlayer) => {
+    const slot = multiplayer.playerSlots.get(roomPlayer.id);
+    const setupPlayer = Number.isInteger(slot) ? state.setupFlow.players[slot] : null;
+    if (!setupPlayer) return;
+    setupPlayer.name = sanitizeHubPlayerName(roomPlayer.name) || `Player ${slot + 1}`;
+    setupPlayer.controller = "human";
+  });
+  const localSlot = getLocalPlayerSlot();
+  if (Number.isInteger(localSlot) && state.setupFlow.players[localSlot]) {
+    state.setupFlow.players[localSlot].name = multiplayer.session.playerName || `Player ${localSlot + 1}`;
+    state.setupFlow.players[localSlot].controller = "human";
+  }
+  renderSetupFlow();
+}
+
+function sanitizeSnapshotValue(key, value) {
+  if (typeof value === "function") return undefined;
+  if (key === "tileElements" || key === "avatarElements" || key === "flagElements" || key === "obstacleElements" || key === "groundItemElements" || key === "foodCourtServedFoodElements" || key === "zoneElements" || key === "damageTextElements" || key === "popcornEffectElements" || key === "territoryPointTextElements" || key === "territoryElements" || key === "activeModals") {
+    return undefined;
+  }
+  if (key === "diceAnimation" || key === "orderAnimation") return undefined;
+  if (value instanceof Map || value instanceof Set) return undefined;
+  if (key === "activePointers") return undefined;
+  if (typeof Node !== "undefined" && value instanceof Node) return undefined;
+  return value;
+}
+
+function createMultiplayerSnapshot() {
+  const camera = { ...state.camera, activePointers: undefined, dragging: false, pointerId: null, padDragging: false, padPointerId: null, padAnimationFrame: null };
+  const snapshotSource = {
+    phase: state.phase,
+    selectedMapId: state.selectedMapId,
+    matchMode: state.matchMode,
+    setupFlow: state.setupFlow,
+    round: state.round,
+    board: state.board,
+    players: state.players,
+    order: state.order,
+    currentTurnOrderIndex: state.currentTurnOrderIndex,
+    currentPlayerIndex: state.currentPlayerIndex,
+    currentAction: state.currentAction,
+    roundTransitionActive: state.roundTransitionActive,
+    moveDie: state.moveDie,
+    paintDie: state.paintDie,
+    remainingMove: state.remainingMove,
+    remainingPaint: state.remainingPaint,
+    turnMoveCountBonus: state.turnMoveCountBonus,
+    turnPaintCountBonus: state.turnPaintCountBonus,
+    turnNormalMoveDistance: state.turnNormalMoveDistance,
+    selectedPath: state.selectedPath,
+    selectedPaintTargets: state.selectedPaintTargets,
+    turnHadBattle: state.turnHadBattle,
+    turnCapturedEnemyCount: state.turnCapturedEnemyCount,
+    turnUsedItem: state.turnUsedItem,
+    rotationLocked: state.rotationLocked,
+    allowFreeCameraDuringInput: state.allowFreeCameraDuringInput,
+    movementAnimating: state.movementAnimating,
+    camera,
+    territoryStatusById: state.territoryStatusById,
+    territoryPointsByKey: state.territoryPointsByKey,
+    foodCourt: state.foodCourt,
+    pendingBattle: state.pendingBattle,
+    returningPlayerIds: state.returningPlayerIds,
+    battleIntroRunning: state.battleIntroRunning,
+    completedTurnsInRound: state.completedTurnsInRound,
+    turnNumber: state.turnNumber,
+    gameOver: state.gameOver,
+    globalIdCounter: state.globalIdCounter,
+    logEntries: state.logEntries,
+    ui: {
+      ...state.ui,
+      matchAbortPromptOpen: false
+    },
+    selectedPlayerSummaryIndex: state.selectedPlayerSummaryIndex,
+    setupSelection: {
+      active: state.setupSelection.active,
+      availableCorners: state.setupSelection.availableCorners,
+      currentPlayerIndex: state.setupSelection.currentPlayerIndex,
+      computerChoiceMode: state.setupSelection.computerChoiceMode,
+      autoPlaceAllComputers: state.setupSelection.autoPlaceAllComputers
+    },
+    turnActionOrigin: state.turnActionOrigin,
+    turnActionOriginalOwners: state.turnActionOriginalOwners,
+    lastRoundActive: state.lastRoundActive,
+    lastRoundHudActive: state.lastRoundHudActive,
+    lastRoundReason: state.lastRoundReason,
+    gameEndContext: state.gameEndContext,
+    matchRuntimeVersion: state.matchRuntimeVersion,
+    venomVarnishes: state.venomVarnishes,
+    veskaThreadEffects: state.veskaThreadEffects,
+    statLossPopups: state.statLossPopups,
+    mimiGamblerRipples: state.mimiGamblerRipples,
+    brakkExplosionEffects: state.brakkExplosionEffects,
+    brakkMissileEffects: state.brakkMissileEffects,
+    rascaTailImpactEffects: state.rascaTailImpactEffects,
+    pipPopcornEffects: state.pipPopcornEffects,
+    rascaClones: state.rascaClones,
+    damageTextPopups: state.damageTextPopups,
+    territoryPointPopups: state.territoryPointPopups,
+    paintPhaseStartRemaining: state.paintPhaseStartRemaining,
+    tutorial: state.tutorial
+  };
+  return JSON.parse(JSON.stringify(snapshotSource, sanitizeSnapshotValue));
+}
+
+function applyMultiplayerSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || multiplayer.session.isHost) return;
+  multiplayer.applyingSnapshot = true;
+  const preserved = {
+    tileElements: state.tileElements,
+    avatarElements: state.avatarElements,
+    flagElements: state.flagElements,
+    obstacleElements: state.obstacleElements,
+    groundItemElements: state.groundItemElements,
+    foodCourtServedFoodElements: state.foodCourtServedFoodElements,
+    zoneElements: state.zoneElements,
+    damageTextElements: state.damageTextElements,
+    popcornEffectElements: state.popcornEffectElements,
+    territoryPointTextElements: state.territoryPointTextElements,
+    territoryElements: state.territoryElements,
+    activeModals: state.activeModals,
+    diceAnimation: state.diceAnimation,
+    orderAnimation: state.orderAnimation,
+    cameraActivePointers: state.camera.activePointers,
+    cameraPadAnimationFrame: state.camera.padAnimationFrame
+  };
+  Object.assign(state, snapshot);
+  state.tileElements = preserved.tileElements;
+  state.avatarElements = preserved.avatarElements;
+  state.flagElements = preserved.flagElements;
+  state.obstacleElements = preserved.obstacleElements;
+  state.groundItemElements = preserved.groundItemElements;
+  state.foodCourtServedFoodElements = preserved.foodCourtServedFoodElements;
+  state.zoneElements = preserved.zoneElements;
+  state.damageTextElements = preserved.damageTextElements;
+  state.popcornEffectElements = preserved.popcornEffectElements;
+  state.territoryPointTextElements = preserved.territoryPointTextElements;
+  state.territoryElements = preserved.territoryElements;
+  state.activeModals = preserved.activeModals;
+  state.diceAnimation = preserved.diceAnimation;
+  state.orderAnimation = preserved.orderAnimation;
+  state.camera = {
+    ...state.camera,
+    activePointers: preserved.cameraActivePointers,
+    padAnimationFrame: preserved.cameraPadAnimationFrame,
+    dragging: false,
+    pointerId: null,
+    padDragging: false,
+    padPointerId: null
+  };
+  state.setupSelection = {
+    active: !!snapshot.setupSelection?.active,
+    availableCorners: Array.isArray(snapshot.setupSelection?.availableCorners) ? snapshot.setupSelection.availableCorners : [],
+    currentPlayerIndex: snapshot.setupSelection?.currentPlayerIndex ?? null,
+    computerChoiceMode: snapshot.setupSelection?.computerChoiceMode ?? null,
+    autoPlaceAllComputers: !!snapshot.setupSelection?.autoPlaceAllComputers,
+    resolve: null
+  };
+  ui.setupScreen.classList.toggle("active", state.phase !== "game");
+  ui.gameScreen.classList.toggle("active", state.phase === "game");
+  if (state.phase === "setup") {
+    renderSetupFlow();
+  } else {
+    renderAll({ fullBoard: true });
+  }
+  updateMultiplayerStatus();
+  multiplayer.applyingSnapshot = false;
+}
+
+function multiplayerScheduleSnapshot(delay = 220) {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isHost || !multiplayer.connected || multiplayer.applyingSnapshot) return;
+  if (multiplayer.snapshotTimer) window.clearTimeout(multiplayer.snapshotTimer);
+  multiplayer.snapshotTimer = window.setTimeout(() => {
+    multiplayer.snapshotTimer = null;
+    sendHubAction(HUB_ACTION_TYPES.SNAPSHOT, { snapshot: createMultiplayerSnapshot() });
+  }, delay);
+}
+
+async function handleRemoteHubAction(action, fromPlayerId) {
+  if (!action || typeof action.type !== "string") return;
+  if (action.type === HUB_ACTION_TYPES.SNAPSHOT) {
+    applyMultiplayerSnapshot(action.payload?.snapshot);
+    return;
+  }
+  if (action.type === HUB_ACTION_TYPES.REQUEST_SNAPSHOT) {
+    if (multiplayer.session.isHost) multiplayerScheduleSnapshot(20);
+    return;
+  }
+  if (action.type === HUB_ACTION_TYPES.MODAL_SYNC) {
+    applyRemoteModalSync(action.payload);
+    return;
+  }
+  if (action.type === HUB_ACTION_TYPES.MODAL_CLOSE) {
+    applyRemoteModalClose();
+    return;
+  }
+  if (action.type === HUB_ACTION_TYPES.MODAL_CLICK) {
+    if (fromPlayerId !== multiplayer.session.playerId) clickHostModalSelector(action.payload?.selector);
+    return;
+  }
+  if (!multiplayer.session.isHost || fromPlayerId === multiplayer.session.playerId) return;
+  const actorIndex = getRemoteActionPlayerIndex(fromPlayerId);
+  if (!Number.isInteger(actorIndex)) return;
+  if (state.setupSelection.active && action.type !== HUB_ACTION_TYPES.SELECT_TILE) return;
+  if (!state.setupSelection.active && state.currentPlayerIndex !== actorIndex) return;
+
+  if (action.type === HUB_ACTION_TYPES.SELECT_TILE) {
+    const row = Number(action.payload?.row);
+    const col = Number(action.payload?.col);
+    if (!Number.isInteger(row) || !Number.isInteger(col)) return;
+    if (state.setupSelection.active) {
+      if (state.setupSelection.currentPlayerIndex !== actorIndex) return;
+      const selectedCorner = state.setupSelection.availableCorners.find((corner) => corner.row === row && corner.col === col);
+      if (selectedCorner && typeof state.setupSelection.resolve === "function") state.setupSelection.resolve(selectedCorner);
+    } else if (state.currentAction === "move") {
+      updateMovePathSelection(row, col);
+    } else if (state.currentAction === "paint") {
+      updatePaintSelection(row, col);
+    }
+  } else if (action.type === HUB_ACTION_TYPES.CONTROL_ACTION) {
+    const control = String(action.payload?.control || "");
+    if (control === "confirmMove") await confirmMovePhase();
+    else if (control === "resetMove") resetTurnSelection();
+    else if (control === "confirmPaint") await confirmPaintPhase();
+    else if (control === "cancelPaint") cancelPaintSelection();
+  } else if (action.type === HUB_ACTION_TYPES.ROLL_DICE) {
+    if (!state.moveDie && !state.gameOver) await rollTurnDiceAnimated();
+  } else if (action.type === HUB_ACTION_TYPES.REST) {
+    if (!state.moveDie && !state.gameOver && maybeShowRestButton()) restFlow();
+  }
+  multiplayerScheduleSnapshot(80);
+}
+
+function getRoomControlActionName(index) {
+  if (state.currentAction === "move") return index === 0 ? "confirmMove" : "resetMove";
+  if (state.currentAction === "paint") return index === 0 ? "confirmPaint" : "cancelPaint";
+  return "";
+}
+
+function interceptGuestRoomClick(event) {
+  if (!multiplayer.session.isRoomPlay || multiplayer.session.isHost || multiplayer.applyingSnapshot) return;
+  const target = event.target;
+  if (!target) return;
+  const modalButton = target.closest?.("#modalRoot button");
+  if (modalButton) {
+    const selector = getHubElementSelector(modalButton);
+    if (selector) {
+      event.preventDefault();
+      event.stopPropagation();
+      sendHubAction(HUB_ACTION_TYPES.MODAL_CLICK, { selector });
+    }
+    return;
+  }
+  if (!isLocalRoomPlayerTurn()) return;
+  const actionButton = target.closest?.("[data-action-index]");
+  if (actionButton) {
+    const control = getRoomControlActionName(Number(actionButton.dataset.actionIndex));
+    if (control) {
+      event.preventDefault();
+      event.stopPropagation();
+      sendHubAction(HUB_ACTION_TYPES.CONTROL_ACTION, { control });
+    }
+    return;
+  }
+  if (target.closest?.("#confirmRollDiceButton")) {
+    event.preventDefault();
+    event.stopPropagation();
+    sendHubAction(HUB_ACTION_TYPES.ROLL_DICE);
+    return;
+  }
+  if (target.closest?.("#confirmRestButton")) {
+    event.preventDefault();
+    event.stopPropagation();
+    sendHubAction(HUB_ACTION_TYPES.REST);
+  }
+}
+
+function connectHubRoom() {
+  if (!multiplayer.session.isRoomPlay) {
+    if (multiplayer.session.fromHub) updateMultiplayerStatus("Hub local play");
+    return;
+  }
+  updateMultiplayerStatus();
+  if (!multiplayer.session.valid) {
+    updateMultiplayerStatus("Room play unavailable: missing room or WebSocket URL");
+    return;
+  }
+  const socket = new WebSocket(multiplayer.session.wsUrl);
+  multiplayer.socket = socket;
+
+  socket.addEventListener("open", () => {
+    multiplayer.connected = true;
+    hubSend(HUB_ROOM_EVENTS.JOIN_ROOM, {
+      roomCode: multiplayer.session.roomCode,
+      mode: multiplayer.session.mode,
+      gameId: HUB_GAME_ID,
+      player: {
+        id: multiplayer.session.playerId,
+        name: multiplayer.session.playerName
+      }
+    });
+    hubSend(HUB_ROOM_EVENTS.PLAYER_READY, {
+      roomCode: multiplayer.session.roomCode,
+      playerId: multiplayer.session.playerId,
+      ready: true
+    });
+    multiplayer.heartbeatTimer = window.setInterval(() => {
+      hubSend(HUB_ROOM_EVENTS.HEARTBEAT, {
+        roomCode: multiplayer.session.roomCode,
+        playerId: multiplayer.session.playerId,
+        at: Date.now()
+      });
+    }, 15000);
+    updateMultiplayerStatus();
+  });
+
+  socket.addEventListener("message", (event) => {
+    let message = null;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    const { type, payload } = message || {};
+    if (type === HUB_SERVER_EVENTS.ROOM_JOINED || type === HUB_SERVER_EVENTS.ROOM_STATE || type === HUB_SERVER_EVENTS.SYNC_STATE) {
+      multiplayer.room = payload?.room || multiplayer.room;
+      updateRoomPlayerSlots(multiplayer.room);
+      if (state.phase === "setup") configureHubSetupPlayersFromRoom(multiplayer.room);
+      if (type === HUB_SERVER_EVENTS.SYNC_STATE && payload?.lastAction) {
+        void handleRemoteHubAction(payload.lastAction, payload.lastAction.actorId);
+      }
+      if (multiplayer.session.isGuest) sendHubAction(HUB_ACTION_TYPES.REQUEST_SNAPSHOT);
+      updateMultiplayerStatus();
+    } else if (type === HUB_SERVER_EVENTS.PLAYER_JOINED) {
+      if (payload?.player && multiplayer.room?.players && !multiplayer.room.players.some((player) => player.id === payload.player.id)) {
+        multiplayer.room.players.push(payload.player);
+      }
+      configureHubSetupPlayersFromRoom(multiplayer.room);
+      if (multiplayer.session.isHost) multiplayerScheduleSnapshot(50);
+    } else if (type === HUB_SERVER_EVENTS.GAME_ACTION) {
+      void handleRemoteHubAction(payload?.action, payload?.fromPlayerId);
+    } else if (type === HUB_SERVER_EVENTS.ERROR) {
+      multiplayer.lastError = payload?.message || "Room server error.";
+      updateMultiplayerStatus(multiplayer.lastError);
+    } else if (type === HUB_SERVER_EVENTS.ROOM_CLOSED) {
+      updateMultiplayerStatus(payload?.message || "Room closed");
+    }
+  });
+
+  socket.addEventListener("close", () => {
+    multiplayer.connected = false;
+    if (multiplayer.heartbeatTimer) {
+      window.clearInterval(multiplayer.heartbeatTimer);
+      multiplayer.heartbeatTimer = null;
+    }
+    updateMultiplayerStatus("Room connection closed");
+  });
+
+  socket.addEventListener("error", () => {
+    updateMultiplayerStatus("WebSocket connection failed");
+  });
+}
+
 function getMapDefinition(mapId) {
   return MAP_LIBRARY[mapId] || MAP_LIBRARY.simpleArena;
 }
@@ -6305,6 +6917,31 @@ function createBoard() {
 
 
 async function startGame() {
+  if (multiplayer.session.isRoomPlay) {
+    if (!multiplayer.session.isHost) {
+      showSimpleModal({
+        title: "Waiting for host",
+        body: "The host starts online room matches.",
+        buttons: [{ label: "Close", style: "primary", onClick: closeTopModal }]
+      });
+      return;
+    }
+    if (!multiplayer.connected || (multiplayer.room?.players?.length || 0) < 2) {
+      showSimpleModal({
+        title: "Waiting for player 2",
+        body: "Start the match after the second player has joined the room.",
+        buttons: [{ label: "Close", style: "primary", onClick: closeTopModal }]
+      });
+      return;
+    }
+    configureHubSetupPlayersFromRoom(multiplayer.room);
+    hubSend(HUB_ROOM_EVENTS.START_GAME, {
+      roomCode: multiplayer.session.roomCode,
+      playerId: multiplayer.session.playerId,
+      gameId: HUB_GAME_ID,
+      seed: Date.now()
+    });
+  }
   resetMatchRuntimeState();
   applyRoyalMarchSetupDefaults();
   state.matchRuntimeVersion += 1;
@@ -11226,6 +11863,7 @@ function renderAll(options = {}) {
   renderExpandablePanels();
   renderObstacleActionPanel();
   renderInlinePromptPanel();
+  multiplayerScheduleSnapshot();
 }
 
 function renderHud() {
@@ -12635,6 +13273,22 @@ function updatePinchZoom() {
 function onTileClick(event) {
   const row = Number(event.currentTarget.dataset.row);
   const col = Number(event.currentTarget.dataset.col);
+  if (multiplayer.session.isRoomPlay && !multiplayer.session.isHost) {
+    if (state.setupSelection.active) {
+      if (state.setupSelection.currentPlayerIndex === getLocalPlayerSlot()) {
+        sendHubAction(HUB_ACTION_TYPES.SELECT_TILE, { row, col });
+      }
+      return;
+    }
+    if ((state.currentAction === "move" || state.currentAction === "paint") && isLocalRoomPlayerTurn()) {
+      sendHubAction(HUB_ACTION_TYPES.SELECT_TILE, { row, col });
+      return;
+    }
+  }
+  if (multiplayer.session.isRoomPlay && multiplayer.session.isHost) {
+    if (state.setupSelection.active && state.setupSelection.currentPlayerIndex !== getLocalPlayerSlot()) return;
+    if ((state.currentAction === "move" || state.currentAction === "paint") && !isLocalRoomPlayerTurn()) return;
+  }
   if (state.ui.skavaTargetPrompt) {
     if (resolveSkavaTargetTileSelection(row, col)) return;
   }
@@ -18950,7 +19604,7 @@ function renderControls() {
     return;
   }
 
-  const interactionLocked = isInteractionPromptBlocking();
+  const interactionLocked = isInteractionPromptBlocking() || !canLocalInteractWithRoomTurn();
   const computerTurn = isComputerPlayer(player);
   if (ui.rollDiceButton) {
     ui.rollDiceButton.disabled = !!state.moveDie || state.gameOver || interactionLocked || computerTurn;
@@ -20032,7 +20686,7 @@ function showSimpleModal({ title, body, buttons, afterRender }) {
   modal.querySelector(".modalTitle").textContent = title;
   modal.querySelector(".modalBody").innerHTML = body;
   const actions = modal.querySelector(".modalActions");
-  buttons.forEach((button) => {
+  buttons.forEach((button, index) => {
     const element = document.createElement("button");
     element.className = button.style === "primary"
       ? "primaryButton"
@@ -20042,6 +20696,7 @@ function showSimpleModal({ title, body, buttons, afterRender }) {
           ? "optionButton"
           : "ghostButton";
     element.textContent = button.label;
+    element.dataset.modalButtonIndex = String(index);
     if (button.disabled) element.disabled = true;
     element.addEventListener("click", button.onClick);
     actions.appendChild(element);
@@ -20050,6 +20705,7 @@ function showSimpleModal({ title, body, buttons, afterRender }) {
   ui.modalRoot.appendChild(modal);
   state.activeModals = [modal];
   if (afterRender) afterRender(modal);
+  syncOpenModalToRoom();
 }
 
 function closeTopModal(options = {}) {
@@ -20068,6 +20724,7 @@ function closeTopModal(options = {}) {
   if (!keepBackdrop) {
     ui.modalBackdrop.classList.add("hidden");
   }
+  syncClosedModalToRoom();
 }
 
 
@@ -20211,7 +20868,8 @@ function animateOrderCounterSequence(activeIndices, existingRolls) {
 
       activeIndices.forEach((index, stopOrder) => {
         const player = state.players[index];
-        if (!isComputerPlayer(player)) return;
+        const shouldAutoStopForRoom = multiplayer.session.isRoomPlay && index !== getLocalPlayerSlot();
+        if (!isComputerPlayer(player) && !shouldAutoStopForRoom) return;
         const button = modal.querySelector(`[data-order-stop="${index}"]`);
         if (!button) return;
         const delay = 450 + stopOrder * 220 + randomInt(120, 360);
@@ -20246,6 +20904,7 @@ function showRawModal(html, afterRender) {
   ui.modalRoot.innerHTML = html;
   state.activeModals = Array.from(ui.modalRoot.children);
   if (afterRender) afterRender(ui.modalRoot.firstElementChild);
+  syncOpenModalToRoom();
 }
 
 function createDieCubeHtml(index, label = "", valueLabel = "") {
@@ -20787,3 +21446,5 @@ ui.cameraFrame.addEventListener("pointerup", stopCameraDrag);
 ui.cameraFrame.addEventListener("pointercancel", stopCameraDrag);
 
 initSetupFlow();
+document.addEventListener("click", interceptGuestRoomClick, true);
+connectHubRoom();

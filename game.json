@@ -2,7 +2,8 @@
   "title": "Territory Battle",
   "description": "A local turn-based territory battle game where players move, paint tiles, fight over space, use character skills, and compete for final points.",
   "icon": "./icon.png",
+  "gameId": "tileboard",
   "maxPlayers": 2,
   "supportsLocal": true,
-  "supportsRooms": false
+  "supportsRooms": true
 }
