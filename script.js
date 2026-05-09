@@ -8,6 +8,9 @@ const ENEMY_TILE_END_DAMAGE = 5;
 const FLAG_POINTS = 15;
 const BOARD_SIZE = 48;
 const BOARD_GAP = 8;
+const BACKGROUND_IMAGE_PATH = "assets/backgrounds/";
+const GUIDE_IMAGE_PATH = "assets/guides/";
+const ITEM_IMAGE_PATH = "assets/items/";
 const TANKER2_ITEM_TYPES = ["abilityRestore", "abilityExpand", "potion"];
 const OBSTACLE_BASE_HP = 20;
 const SIMPLE_ARENA_MAX_ROUNDS = 30;
@@ -1333,7 +1336,7 @@ const itemDefinitions = {
     id: "forceShard",
     name: "Power Shard",
     shortName: "Power Shard",
-    icon: '<img class="itemIconImage itemIconImage--powerShard" src="power_shard_2.png" alt="">',
+    icon: `<img class="itemIconImage itemIconImage--powerShard" src="${ITEM_IMAGE_PATH}power_shard_2.png" alt="">`,
     description: "Automatically consumed in the next battle, adding held count × 8 to the chosen stat.",
     stackable: true,
     battleOnly: true
@@ -5528,12 +5531,12 @@ function renderSetupPreviewField(mapDefinition) {
   }
 
   const backgroundImage = mapDefinition.id === "royalMarch"
-    ? "royal_march_background.png"
+    ? `${BACKGROUND_IMAGE_PATH}royal_march_background.png`
     : (mapDefinition.id === "centralDominion"
-      ? "central_dominion_background.png"
+      ? `${BACKGROUND_IMAGE_PATH}central_dominion_background.png`
       : (mapDefinition.id === "bigBridge"
-        ? "big_bridge_background.png"
-        : (mapDefinition.id === "foodCourt" ? "food_court.png" : "arena_background.png")));
+        ? `${BACKGROUND_IMAGE_PATH}big_bridge_background.png`
+        : (mapDefinition.id === "foodCourt" ? `${BACKGROUND_IMAGE_PATH}food_court.png` : `${BACKGROUND_IMAGE_PATH}arena_background.png`)));
   return `
     <div id="setupMapPreviewStage" class="setupMapPreviewStage" aria-label="Map preview">
       <img class="setupMapPreviewBackground" src="${sanitize(backgroundImage)}" alt="">
@@ -15794,7 +15797,7 @@ function buildBattleMatchupHelpButtonHtml() {
 function buildBattleMatchupHelpBody() {
   return `
     <div class="battleMatchupGuide">
-      <img class="battleMatchupGuideImage" src="battle_matchups.png" alt="Attack, HP, and Technique matchup chart">
+      <img class="battleMatchupGuideImage" src="${GUIDE_IMAGE_PATH}battle_matchups.png" alt="Attack, HP, and Technique matchup chart">
       <div class="battleMatchupGuideText">
         <p><strong>HP</strong> is strong against <strong>Attack</strong>.</p>
         <p><strong>Attack</strong> is strong against <strong>Technique</strong>.</p>

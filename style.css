@@ -2589,7 +2589,7 @@ button:not(:disabled):active {
   content: "";
   position: absolute;
   inset: 0;
-  background: url("arena_background.png") center center / cover no-repeat;
+  background: url("assets/backgrounds/arena_background.png") center center / cover no-repeat;
   filter: blur(10px) brightness(0.48) saturate(0.92);
   transform: scale(1.08);
   z-index: 0;
@@ -2597,19 +2597,19 @@ button:not(:disabled):active {
 }
 
 #boardWrap.royal-march-background::before {
-  background-image: url("royal_march_background.png") !important;
+  background-image: url("assets/backgrounds/royal_march_background.png") !important;
   filter: blur(7px) brightness(0.58) saturate(0.95);
   transform: scale(1.05);
 }
 
 #boardWrap.central-dominion-background::before {
-  background-image: url("central_dominion_background.png") !important;
+  background-image: url("assets/backgrounds/central_dominion_background.png") !important;
   filter: blur(7px) brightness(0.62) saturate(0.78);
   transform: scale(1.05);
 }
 
 #boardWrap.big-bridge-background::before {
-  background-image: url("big_bridge_background.png") !important;
+  background-image: url("assets/backgrounds/big_bridge_background.png") !important;
   filter: blur(5px) brightness(0.9) saturate(1.02);
   transform: scale(1.05);
 }
@@ -3547,7 +3547,7 @@ button:not(:disabled):active {
 
 /* v13 requested adjustments */
 #boardWrap::before {
-  background: url("arena_background.png") center center / cover no-repeat !important;
+  background: url("assets/backgrounds/arena_background.png") center center / cover no-repeat !important;
   filter: blur(4px) brightness(0.78) saturate(1.02) !important;
   transform: scale(1.05) !important;
 }
@@ -3999,7 +3999,7 @@ button:not(:disabled):active {
 
 /* v15 fixes */
 #boardWrap::before {
-  background-image: url("./arena_background.png") !important;
+  background-image: url("./assets/backgrounds/arena_background.png") !important;
   background-position: center center !important;
   background-size: cover !important;
   background-repeat: no-repeat !important;
@@ -8480,7 +8480,7 @@ body {
   padding:0;
   border:none;
   border-radius:0;
-  background:url("power_shard_2.png") center / contain no-repeat;
+  background:url("assets/items/power_shard_2.png") center / contain no-repeat;
   box-shadow:none;
   font-size:0;
 }
@@ -13501,7 +13501,7 @@ textarea,
 }
 
 #boardWrap.royal-march-background::before {
-  background-image: url("./royal_march_background.png") !important;
+  background-image: url("./assets/backgrounds/royal_march_background.png") !important;
   background-position: center center !important;
   background-size: cover !important;
   background-repeat: no-repeat !important;
@@ -13509,7 +13509,7 @@ textarea,
 }
 
 #boardWrap.big-bridge-background::before {
-  background-image: url("./big_bridge_background.png") !important;
+  background-image: url("./assets/backgrounds/big_bridge_background.png") !important;
   background-position: center center !important;
   background-size: cover !important;
   background-repeat: no-repeat !important;
@@ -14297,11 +14297,11 @@ textarea,
 .boardWrap.food-court-background .cameraFrame {
   background:
     linear-gradient(rgba(255, 246, 226, 0.1), rgba(255, 246, 226, 0.1)),
-    url("food_court.png") center / cover no-repeat;
+    url("assets/backgrounds/food_court.png") center / cover no-repeat;
 }
 
 #boardWrap.food-court-background::before {
-  background-image: url("food_court.png") !important;
+  background-image: url("assets/backgrounds/food_court.png") !important;
   background-position: center center !important;
   background-size: cover !important;
   background-repeat: no-repeat !important;
