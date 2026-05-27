@@ -2444,6 +2444,14 @@ function interceptGuestRoomClick(event) {
   const modalButton = target.closest?.("#modalRoot button");
   if (modalButton) {
     const selector = getHubElementSelector(modalButton);
+    if (
+      modalButton.matches("#stopDiceRollButton")
+      && performance.now() - (state.diceAnimation.lastRemoteStopSentAt || 0) < 500
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (modalButton.matches("[data-order-stop]") && Number(modalButton.dataset.orderStop) !== getLocalPlayerSlot()) {
       event.preventDefault();
       event.stopPropagation();
@@ -2490,10 +2498,17 @@ function interceptGuestRoomClick(event) {
 
 function interceptGuestRoomPointerDown(event) {
   if (!multiplayer.session.isRoomPlay || multiplayer.session.isHost || multiplayer.applyingSnapshot) return;
-  const modalButton = event.target?.closest?.("#modalRoot button[data-order-stop]");
+  const modalButton = event.target?.closest?.("#modalRoot button[data-order-stop], #modalRoot #stopDiceRollButton");
   if (!modalButton) return;
   event.preventDefault();
   event.stopPropagation();
+  if (modalButton.matches("#stopDiceRollButton")) {
+    const selector = getHubElementSelector(modalButton);
+    if (!selector) return;
+    state.diceAnimation.lastRemoteStopSentAt = performance.now();
+    sendHubAction(HUB_ACTION_TYPES.MODAL_CLICK, { selector });
+    return;
+  }
   if (Number(modalButton.dataset.orderStop) !== getLocalPlayerSlot()) return;
   const selector = getHubElementSelector(modalButton);
   if (!selector) return;
@@ -13757,6 +13772,49 @@ function onTileClick(event) {
   handleTileSelection(row, col);
 }
 
+function getViewportTileAtPoint(clientX, clientY, { setupOnly = false } = {}) {
+  let best = null;
+  let bestDistance = Infinity;
+  state.tileElements.forEach((tile) => {
+    if (!tile || (setupOnly && !tile.classList.contains("setup-available"))) return;
+    const rect = tile.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const hitSlop = setupOnly ? 10 : 4;
+    const inside = clientX >= rect.left - hitSlop
+      && clientX <= rect.right + hitSlop
+      && clientY >= rect.top - hitSlop
+      && clientY <= rect.bottom + hitSlop;
+    if (!inside) return;
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const distance = Math.hypot(clientX - centerX, clientY - centerY);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = tile;
+    }
+  });
+  return best;
+}
+
+function handleBoardTilePointSelection(event) {
+  if (!state.setupSelection.active) return false;
+  if (state.camera.pinchActive || state.camera.activePointers.size > 1 || state.camera.moved) return false;
+  if (performance.now() < state.camera.suppressTileClickUntil) return false;
+  const target = event.target;
+  if (target?.closest?.(".tile")) return false;
+  const frameRect = ui.cameraFrame?.getBoundingClientRect?.();
+  if (!frameRect) return false;
+  const { clientX, clientY } = event;
+  if (clientX < frameRect.left || clientX > frameRect.right || clientY < frameRect.top || clientY > frameRect.bottom) return false;
+  const tile = getViewportTileAtPoint(clientX, clientY, { setupOnly: true });
+  if (!tile) return false;
+  state.camera.lastTilePointerSelectionAt = performance.now();
+  event.preventDefault();
+  event.stopPropagation();
+  handleTileSelection(Number(tile.dataset.row), Number(tile.dataset.col));
+  return true;
+}
+
 function updateMovePathSelection(row, col) {
   if (!isValidMoveSelection(row, col)) return;
   const path = state.selectedPath;
@@ -21616,6 +21674,7 @@ function isPointInsideElement(element, clientX, clientY) {
 
 function handleDockPointerByCoordinates(event) {
   if (!event.isPrimary && event.pointerType !== "mouse") return;
+  if (handleBoardTilePointSelection(event)) return;
   const { clientX, clientY } = event;
   const confirmRollButton = document.getElementById("confirmRollDiceButton");
   const confirmRestButton = document.getElementById("confirmRestButton");
