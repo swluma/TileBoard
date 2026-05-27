@@ -20605,6 +20605,20 @@ function renderSkillOverlayPanel() {
 }
 
 
+async function confirmRollDiceFromBubble() {
+  if (state.moveDie || state.gameOver) return;
+  state.ui.diceBubbleOpen = false;
+  renderExpandablePanels();
+  await rollTurnDiceAnimated();
+}
+
+function confirmRestFromBubble() {
+  if (state.moveDie || state.gameOver || !maybeShowRestButton()) return;
+  state.ui.restBubbleOpen = false;
+  restFlow();
+  renderExpandablePanels();
+}
+
 function renderDiceBubble() {
   if (!ui.diceBubble || !ui.rollDiceButton) return;
   ui.rollDiceButton.classList.toggle("active", state.ui.diceBubbleOpen);
@@ -20621,11 +20635,15 @@ function renderDiceBubble() {
   const confirmButton = document.getElementById("confirmRollDiceButton");
   if (confirmButton) confirmButton.addEventListener("click", async (event) => {
     event.stopPropagation();
-    if (!state.moveDie && !state.gameOver) {
-      state.ui.diceBubbleOpen = false;
-      renderExpandablePanels();
-      await rollTurnDiceAnimated();
-    }
+    if (performance.now() - (state.ui.lastBubblePointerConfirmAt || 0) < 350) return;
+    await confirmRollDiceFromBubble();
+  });
+  if (confirmButton) confirmButton.addEventListener("pointerup", async (event) => {
+    if (event.pointerType === "mouse") return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.ui.lastBubblePointerConfirmAt = performance.now();
+    await confirmRollDiceFromBubble();
   });
 }
 
@@ -20645,11 +20663,15 @@ function renderRestBubble() {
   const confirmButton = document.getElementById("confirmRestButton");
   if (confirmButton) confirmButton.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (!state.moveDie && !state.gameOver && maybeShowRestButton()) {
-      state.ui.restBubbleOpen = false;
-      restFlow();
-      renderExpandablePanels();
-    }
+    if (performance.now() - (state.ui.lastBubblePointerConfirmAt || 0) < 350) return;
+    confirmRestFromBubble();
+  });
+  if (confirmButton) confirmButton.addEventListener("pointerup", (event) => {
+    if (event.pointerType === "mouse") return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.ui.lastBubblePointerConfirmAt = performance.now();
+    confirmRestFromBubble();
   });
 }
 
@@ -21571,18 +21593,46 @@ if (ui.skillToggleButton) ui.skillToggleButton.addEventListener("click", (event)
   renderExpandablePanels();
 });
 
-if (ui.rollDiceButton) ui.rollDiceButton.addEventListener("click", (event) => {
-  event.stopPropagation();
+function toggleDiceBubbleControl() {
+  if (!ui.rollDiceButton || ui.rollDiceButton.disabled) return;
   state.ui.diceBubbleOpen = !state.ui.diceBubbleOpen;
   if (state.ui.diceBubbleOpen) state.ui.restBubbleOpen = false;
   renderExpandablePanels();
+}
+
+function toggleRestBubbleControl() {
+  if (!ui.restButton || ui.restButton.disabled) return;
+  state.ui.restBubbleOpen = !state.ui.restBubbleOpen;
+  if (state.ui.restBubbleOpen) state.ui.diceBubbleOpen = false;
+  renderExpandablePanels();
+}
+
+if (ui.rollDiceButton) ui.rollDiceButton.addEventListener("pointerup", (event) => {
+  if (event.pointerType === "mouse") return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.ui.lastDockPointerToggleAt = performance.now();
+  toggleDiceBubbleControl();
+});
+
+if (ui.rollDiceButton) ui.rollDiceButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (performance.now() - (state.ui.lastDockPointerToggleAt || 0) < 350) return;
+  toggleDiceBubbleControl();
+});
+
+if (ui.restButton) ui.restButton.addEventListener("pointerup", (event) => {
+  if (event.pointerType === "mouse") return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.ui.lastDockPointerToggleAt = performance.now();
+  toggleRestBubbleControl();
 });
 
 if (ui.restButton) ui.restButton.addEventListener("click", (event) => {
   event.stopPropagation();
-  state.ui.restBubbleOpen = !state.ui.restBubbleOpen;
-  if (state.ui.restBubbleOpen) state.ui.diceBubbleOpen = false;
-  renderExpandablePanels();
+  if (performance.now() - (state.ui.lastDockPointerToggleAt || 0) < 350) return;
+  toggleRestBubbleControl();
 });
 if (ui.cameraActionButton) ui.cameraActionButton.addEventListener("click", (event) => {
   event.stopPropagation();

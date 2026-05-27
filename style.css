@@ -14072,6 +14072,23 @@ textarea,
   }
 }
 
+/* Keep the left action dock tappable above responsive bottom overlays. */
+#skillDock {
+  z-index: 44 !important;
+  pointer-events: auto !important;
+}
+
+#skillDock .dockButtons,
+#skillDock .compactIconButton,
+#skillDock .actionBubble,
+#skillDock .actionBubble button {
+  pointer-events: auto !important;
+}
+
+#skillDock .actionBubble {
+  z-index: 46 !important;
+}
+
 /* Food Court map */
 .tile.foodCourtTableTile .tileTop {
   background: linear-gradient(135deg, rgba(132, 90, 42, 0.96), rgba(86, 54, 25, 0.98)) !important;
