@@ -21607,6 +21607,51 @@ function toggleRestBubbleControl() {
   renderExpandablePanels();
 }
 
+function isPointInsideElement(element, clientX, clientY) {
+  if (!element || element.disabled || element.classList?.contains("hidden")) return false;
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function handleDockPointerByCoordinates(event) {
+  if (!event.isPrimary && event.pointerType !== "mouse") return;
+  const { clientX, clientY } = event;
+  const confirmRollButton = document.getElementById("confirmRollDiceButton");
+  const confirmRestButton = document.getElementById("confirmRestButton");
+
+  if (isPointInsideElement(confirmRollButton, clientX, clientY)) {
+    event.preventDefault();
+    event.stopPropagation();
+    state.ui.lastBubblePointerConfirmAt = performance.now();
+    confirmRollDiceFromBubble();
+    return;
+  }
+
+  if (isPointInsideElement(confirmRestButton, clientX, clientY)) {
+    event.preventDefault();
+    event.stopPropagation();
+    state.ui.lastBubblePointerConfirmAt = performance.now();
+    confirmRestFromBubble();
+    return;
+  }
+
+  if (isPointInsideElement(ui.rollDiceButton, clientX, clientY)) {
+    event.preventDefault();
+    event.stopPropagation();
+    state.ui.lastDockPointerToggleAt = performance.now();
+    toggleDiceBubbleControl();
+    return;
+  }
+
+  if (isPointInsideElement(ui.restButton, clientX, clientY)) {
+    event.preventDefault();
+    event.stopPropagation();
+    state.ui.lastDockPointerToggleAt = performance.now();
+    toggleRestBubbleControl();
+  }
+}
+
 if (ui.rollDiceButton) ui.rollDiceButton.addEventListener("pointerup", (event) => {
   if (event.pointerType === "mouse") return;
   event.preventDefault();
@@ -21940,5 +21985,6 @@ ui.cameraFrame.addEventListener("pointercancel", stopCameraDrag);
 
 initSetupFlow();
 document.addEventListener("pointerdown", interceptGuestRoomPointerDown, true);
+document.addEventListener("pointerup", handleDockPointerByCoordinates, true);
 document.addEventListener("click", interceptGuestRoomClick, true);
 connectHubRoom();
