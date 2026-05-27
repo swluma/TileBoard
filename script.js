@@ -1585,7 +1585,8 @@ const state = {
     raf: null
   },
   orderAnimation: {
-    interval: null
+    interval: null,
+    lastSyncAt: 0
   },
   flagCaptureAnimationTimeout: null,
   skillActivationBannerTimeout: null,
@@ -1801,6 +1802,14 @@ function syncOpenModalToRoom() {
     html: ui.modalRoot.innerHTML,
     backdropClassName: ui.modalBackdrop.className
   });
+}
+
+function syncOpenModalToRoomThrottled(minInterval = 140) {
+  if (!multiplayer.session.isRoomPlay || !multiplayer.session.isHost || !multiplayer.connected || multiplayer.applyingSnapshot) return;
+  const now = performance.now();
+  if (now - (state.orderAnimation.lastSyncAt || 0) < minInterval) return;
+  state.orderAnimation.lastSyncAt = now;
+  syncOpenModalToRoom();
 }
 
 function syncClosedModalToRoom() {
@@ -2435,6 +2444,19 @@ function interceptGuestRoomClick(event) {
   const modalButton = target.closest?.("#modalRoot button");
   if (modalButton) {
     const selector = getHubElementSelector(modalButton);
+    if (modalButton.matches("[data-order-stop]") && Number(modalButton.dataset.orderStop) !== getLocalPlayerSlot()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (
+      modalButton.matches("[data-order-stop]")
+      && performance.now() - (state.orderAnimation.lastRemoteStopSentAt || 0) < 500
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (selector) {
       event.preventDefault();
       event.stopPropagation();
@@ -2464,6 +2486,19 @@ function interceptGuestRoomClick(event) {
     event.stopPropagation();
     sendHubAction(HUB_ACTION_TYPES.REST);
   }
+}
+
+function interceptGuestRoomPointerDown(event) {
+  if (!multiplayer.session.isRoomPlay || multiplayer.session.isHost || multiplayer.applyingSnapshot) return;
+  const modalButton = event.target?.closest?.("#modalRoot button[data-order-stop]");
+  if (!modalButton) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (Number(modalButton.dataset.orderStop) !== getLocalPlayerSlot()) return;
+  const selector = getHubElementSelector(modalButton);
+  if (!selector) return;
+  state.orderAnimation.lastRemoteStopSentAt = performance.now();
+  sendHubAction(HUB_ACTION_TYPES.MODAL_CLICK, { selector });
 }
 
 function connectHubRoom() {
@@ -13196,6 +13231,7 @@ function renderBoard() {
       tile.append(obstacleElement);
       state.obstacleElements.add(obstacleElement);
     }
+    tile.addEventListener("pointerup", onTilePointerUp);
     tile.addEventListener("click", onTileClick);
 
     const key = `${cell.row},${cell.col}`;
@@ -13658,9 +13694,7 @@ function updatePinchZoom() {
   renderZoomDock();
 }
 
-function onTileClick(event) {
-  const row = Number(event.currentTarget.dataset.row);
-  const col = Number(event.currentTarget.dataset.col);
+function handleTileSelection(row, col) {
   if (multiplayer.session.isRoomPlay && !multiplayer.session.isHost) {
     if (state.setupSelection.active) {
       if (state.setupSelection.currentPlayerIndex === getLocalPlayerSlot()) {
@@ -13702,6 +13736,25 @@ function onTileClick(event) {
     state.ui.rightPanelMode = "tile";
     renderExpandablePanels();
   }
+}
+
+function onTilePointerUp(event) {
+  if (event.pointerType === "mouse") return;
+  if (state.camera.pinchActive || state.camera.activePointers.size > 1) return;
+  if (state.camera.dragging && state.camera.pointerId === event.pointerId && state.camera.moved) return;
+  const tile = event.currentTarget;
+  const row = Number(tile.dataset.row);
+  const col = Number(tile.dataset.col);
+  state.camera.lastTilePointerSelectionAt = performance.now();
+  event.preventDefault();
+  handleTileSelection(row, col);
+}
+
+function onTileClick(event) {
+  if (performance.now() - (state.camera.lastTilePointerSelectionAt || 0) < 350) return;
+  const row = Number(event.currentTarget.dataset.row);
+  const col = Number(event.currentTarget.dataset.col);
+  handleTileSelection(row, col);
 }
 
 function updateMovePathSelection(row, col) {
@@ -21205,6 +21258,7 @@ function animateOrderCounterSequence(activeIndices, existingRolls) {
           const counter = modal.querySelector(`[data-counter-index="${index}"]`);
           updateSevenSegmentCounter(counter, workingValues[index], index);
         });
+        syncOpenModalToRoomThrottled();
       };
 
       tick();
@@ -21226,6 +21280,7 @@ function animateOrderCounterSequence(activeIndices, existingRolls) {
 
           clearInterval(state.orderAnimation.interval);
           state.orderAnimation.interval = null;
+          syncOpenModalToRoom();
 
           const tied = [];
           activeIndices.forEach((index) => {
@@ -21251,13 +21306,13 @@ function animateOrderCounterSequence(activeIndices, existingRolls) {
           const subtitle = modal.querySelector(".orderRollSubtitle");
           if (subtitle) subtitle.textContent = "Turn order has been decided.";
           confirmButton.classList.remove("hidden");
+          syncOpenModalToRoom();
         });
       });
 
       activeIndices.forEach((index, stopOrder) => {
         const player = state.players[index];
-        const shouldAutoStopForRoom = multiplayer.session.isRoomPlay && index !== getLocalPlayerSlot();
-        if (!isComputerPlayer(player) && !shouldAutoStopForRoom) return;
+        if (!isComputerPlayer(player)) return;
         const button = modal.querySelector(`[data-order-stop="${index}"]`);
         if (!button) return;
         const delay = 450 + stopOrder * 220 + randomInt(120, 360);
@@ -21834,5 +21889,6 @@ ui.cameraFrame.addEventListener("pointerup", stopCameraDrag);
 ui.cameraFrame.addEventListener("pointercancel", stopCameraDrag);
 
 initSetupFlow();
+document.addEventListener("pointerdown", interceptGuestRoomPointerDown, true);
 document.addEventListener("click", interceptGuestRoomClick, true);
 connectHubRoom();
