@@ -1393,6 +1393,7 @@ const ui = {
   boardWrap: document.getElementById("boardWrap"),
   board3d: document.getElementById("board3d"),
   cameraFrame: document.getElementById("cameraFrame"),
+  setupTileHitLayer: document.getElementById("setupTileHitLayer"),
   battleIntroOverlay: document.getElementById("battleIntroOverlay"),
   battleIntroLeftBars: document.getElementById("battleIntroLeftBars"),
   battleIntroLeftIcon: document.getElementById("battleIntroLeftIcon"),
@@ -13472,6 +13473,75 @@ function refreshTileHighlights() {
     }
     applyTileTopVisual(tile);
   });
+  scheduleSetupTileHitLayerRender();
+}
+
+function clearSetupTileHitLayer() {
+  if (!ui.setupTileHitLayer) return;
+  ui.setupTileHitLayer.innerHTML = "";
+  ui.setupTileHitLayer.classList.add("hidden");
+}
+
+function scheduleSetupTileHitLayerRender() {
+  if (!ui.setupTileHitLayer) return;
+  if (!state.setupSelection.active) {
+    clearSetupTileHitLayer();
+    return;
+  }
+  if (state.ui.setupHitLayerFrame) cancelAnimationFrame(state.ui.setupHitLayerFrame);
+  state.ui.setupHitLayerFrame = requestAnimationFrame(() => {
+    state.ui.setupHitLayerFrame = null;
+    renderSetupTileHitLayer();
+  });
+}
+
+function renderSetupTileHitLayer() {
+  if (!ui.setupTileHitLayer || !ui.boardWrap || !state.setupSelection.active) {
+    clearSetupTileHitLayer();
+    return;
+  }
+
+  const boardRect = ui.boardWrap.getBoundingClientRect();
+  const buttons = [];
+  state.setupSelection.availableCorners.forEach((corner) => {
+    const tile = state.tileElements.get(`${corner.row},${corner.col}`);
+    if (!tile) return;
+    const rect = tile.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const pad = Math.max(8, Math.min(18, rect.width * 0.18));
+    const left = rect.left - boardRect.left - pad;
+    const top = rect.top - boardRect.top - pad;
+    const width = Math.max(44, rect.width + pad * 2);
+    const height = Math.max(44, rect.height + pad * 2);
+    buttons.push(`
+      <button
+        type="button"
+        class="setupTileHitButton"
+        data-setup-hit-row="${corner.row}"
+        data-setup-hit-col="${corner.col}"
+        aria-label="Select ${sanitize(corner.label || `row ${corner.row + 1}, column ${corner.col + 1}`)}"
+        style="left:${left}px; top:${top}px; width:${width}px; height:${height}px;"
+      ></button>
+    `);
+  });
+
+  ui.setupTileHitLayer.innerHTML = buttons.join("");
+  ui.setupTileHitLayer.classList.toggle("hidden", buttons.length === 0);
+  ui.setupTileHitLayer.querySelectorAll("[data-setup-hit-row]").forEach((button) => {
+    const select = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.type === "click" && performance.now() - (state.ui.lastSetupTileHitAt || 0) < 350) return;
+      state.ui.lastSetupTileHitAt = performance.now();
+      handleTileSelection(Number(button.dataset.setupHitRow), Number(button.dataset.setupHitCol));
+    };
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    button.addEventListener("pointerup", select);
+    button.addEventListener("click", select);
+  });
 }
 
 function renderObstacleMiniBar(obstacle) {
@@ -13647,6 +13717,7 @@ function applyCameraTransform() {
   clampCameraPan();
   ui.board3d.style.transform = `translate3d(${state.camera.panX}px, ${state.camera.panY}px, 0) scale(${state.camera.zoom}) rotateX(${state.camera.tilt}deg) rotateZ(${state.camera.yaw}deg)`;
   updateAvatarBillboards();
+  scheduleSetupTileHitLayerRender();
 }
 
 function getFullscreenTarget() {
@@ -21859,7 +21930,10 @@ if (ui.playerDrawerToggle) {
   });
 }
 
-window.addEventListener('resize', () => requestAnimationFrame(updateDrawerCollapsedOffset));
+window.addEventListener('resize', () => {
+  requestAnimationFrame(updateDrawerCollapsedOffset);
+  scheduleSetupTileHitLayerRender();
+});
 
 if (ui.playerSummaryTabs) ui.playerSummaryTabs.addEventListener("click", (event) => {
   const button = event.target.closest("[data-summary-index]");

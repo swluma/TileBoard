@@ -2630,6 +2630,27 @@ button:not(:disabled):active {
   z-index: 2;
 }
 
+.setupTileHitLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 43;
+  pointer-events: none;
+}
+
+.setupTileHitButton {
+  position: absolute;
+  display: block;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.01);
+  border: 2px solid rgba(255, 255, 255, 0.82);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
 #playerSummaryDock,
 #topRightCluster,
 #actionOverlay,
